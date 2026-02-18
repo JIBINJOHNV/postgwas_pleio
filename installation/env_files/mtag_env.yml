@@ -1,0 +1,22 @@
+name: mtag
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=2.7
+  - argparse
+  - bitarray
+  - joblib
+  - numpy
+  - pandas
+  - scipy
+  - setuptools
+  - pip
+  - wheel
+  - six
+  - python-dateutil
+  - pytz
+  - ca-certificates
+  - certifi
+  - openssl

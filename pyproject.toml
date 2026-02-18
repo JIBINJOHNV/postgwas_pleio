@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "postgwas-pleio"
+version = "0.1.0"
+description = "A unified toolkit for pleiotropy and multi-trait analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+keywords = ["genetics", "gwas", "pleiotropy", "mtag", "bioinformatics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+# --- DEPENDENCIES ---
+dependencies = [
+    "rich",
+    "pandas",
+    "numpy",
+    "scipy",
+    "joblib",
+    "polars",
+]
+
+# --- ENTRY POINTS ---
+[project.scripts]
+postgwas-pleio = "postgwas_pleio.__main__:main"
+
+# --- PACKAGE DISCOVERY ---
+[tool.setuptools.packages.find]
+# This tells setuptools to look for 'postgwas_pleio' inside the 'src' folder
+where = ["src"]
+include = ["postgwas_pleio*"]
