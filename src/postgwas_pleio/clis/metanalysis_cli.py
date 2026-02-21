@@ -5,9 +5,413 @@ import argparse
 import textwrap
 from rich_argparse import RichHelpFormatter
 import argparse
+import multiprocessing as mp
 
 
-import argparse
+
+def parse_asset_direct_args(subparsers):
+    parser = subparsers.add_parser(
+        "direct",
+        prog="postgwas-pleio meta-analysis asset direct",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=textwrap.dedent("""
+        ASSET MULTI-TRAIT PLEIOTROPY PIPELINE
+        =====================================
+
+        Pipeline stages:
+          1) Convert summary statistics into LDSC format using GenomicSEM::munge
+          2) LDSC analysis (genetic correlation and intercept estimation)
+          3) fastASSET analysis (fastASSET::fast_asset)
+          4) Full ASSET analysis (ASSET::h.traits)
+
+        ────────────────────────────────────────
+        INPUT FILE REQUIREMENTS
+        ────────────────────────────────────────
+
+        1) LDSC MANIFEST (--input_manifest)
+
+          Each row represents ONE trait.
+
+          Required columns:
+
+            FILE   → Path to GWAS summary statistics
+            NAME   → Trait name (must be unique)
+            SPREV  → Sample prevalence (case fraction)
+            PPREV  → Population prevalence
+
+          Required summary statistic columns:
+            • SNP
+            • A1
+            • A2
+            • Z
+            • N
+
+          Optional columns:
+            INFO, P, BETA, SE
+
+        2) fastASSET SNP INPUT (--fastasset_input)
+
+          Required:
+            • ID column
+            • Beta column per trait
+            • SE column per trait
+            • Sample size column per trait
+
+          Naming rule:
+            TraitName.Beta
+            TraitName.SE
+            TraitName.N
+
+        ────────────────────────────────────────
+        OUTPUT STRUCTURE
+        ────────────────────────────────────────
+
+          3_munge_output/
+          4_ldsc_output/
+          5_fastasset_output/
+          6_htraits_output/
+          environment metadata
+        """)
+    )
+
+    # ===============================
+    # REQUIRED
+    # ===============================
+    parser.add_argument(
+        "--input_manifest",
+        required=True, metavar="MANIFEST",
+        help="Trait manifest describing GWAS inputs"
+    )
+
+    parser.add_argument(
+        "--fastasset_input",
+        required=True, metavar="TABLE",
+        help="SNP effect-size matrix"
+    )
+
+    parser.add_argument(
+        "--output_dir",
+        required=True, metavar="DIR",
+        help="Pipeline output directory"
+    )
+
+    parser.add_argument(
+        "--run_name",
+        required=True, metavar="NAME",
+        help="Prefix for naming intermediate files and logs."
+    )
+
+    parser.add_argument(
+        "--hm3",
+        required=True, metavar="SNPLIST",
+        help="HapMap3 SNP list"
+    )
+
+    parser.add_argument(
+        "--ld_ref_panel",
+        required=True, metavar="DIR",
+        help="LDSC LD reference directory"
+    )
+
+    # ===============================
+    # OPTIONAL
+    # ===============================
+    parser.add_argument(
+        "--info_filter",
+        type=float, default=0.9, metavar="FLOAT",
+        help="Munge INFO filter threshold [default: %(default)s]"
+    )
+
+    parser.add_argument(
+        "--maf_filter",
+        type=float, default=0.01, metavar="FLOAT",
+        help="Munge MAF filter threshold [default: %(default)s]"
+    )
+
+    parser.add_argument(
+        "--chunk_size",
+        type=int, default=100000, metavar="INT",
+        help="Chunk size for SNP processing [default: %(default)s]"
+    )
+
+    parser.add_argument(
+        "--scr_pthr",
+        type=float, default=0.999999, metavar="FLOAT",
+        help="fastASSET screening threshold [default: %(default)s]"
+    )
+
+    parser.add_argument(
+        "--meth_pval",
+        default="DLM", choices=["DLM", "IS", "B"],
+        metavar="METHOD",
+        help="ASSET p-value method [choices: %(choices)s] (default: %(default)s)"
+    )
+
+    parser.add_argument(
+        "--ncores",
+        type=int,
+        default=max(1, mp.cpu_count() // 2),
+        metavar="INT",
+        help="Parallel cores [default: %(default)s]"
+    )
+
+    return parser
+
+
+def parse_asset_pipeline_args(subparser):
+    """
+    Defines command-line arguments for the asset Pipeline mode.
+    """
+    description = (
+        "asset pipeline: Automated End-to-End Analysis\n\n"
+        "1. Merges multiple VCF summary statistics.\n"
+        "2. Filters for common variants (inner join) and biallelic SNPs.\n"
+        "3. Automatically splits and formats data into asset-ready TSV files.\n"
+        "4. LDSC analysis (genetic correlation and intercept estimation)\n"
+        "5. fastASSET analysis (fastASSET::fast_asset)\n"
+        "6. Full ASSET analysis (ASSET::h.traits)\n"
+    )
+    epilog = (
+        "Example Usage:\n"
+        "  postgwas-pleio meta-analysis asset pipeline \\\n"
+        "    --inputfile inputfile.tsv \\\n"
+        "    --run_name psych_study \\\n"
+        "    --ld_ref_panel ./eur_w_ld_chr/ \\\n"
+        "    --cores 4"
+    )
+
+    pipe = subparser.add_parser(
+        "pipeline",
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    # --- Input Options ---
+    in_opts = pipe.add_argument_group(title='Input Options')
+    in_opts.add_argument("--inputfile", required=True, metavar="FILE",
+        help=(
+            "A TSV file with five columns: sumstat_vcf, TYPE, SPREV, PPREV, sample_id.\n\n"
+            "sumstat_vcf: Path to the input GWAS sumstat VCF file.\n"
+            "TYPE:        'binary' or 'quantitative'.\n"
+            "SPREV:       Sample prevalence. Should be 0.5 for binary traits\n"
+            "             because we are using the effective sample size.\n"
+            "PPREV:       Population prevalence. Required for binary traits.\n"
+            "sample_id:   Unique trait identifier matching VCF samples.\n"
+            "\n"
+        ))
+    in_opts.add_argument("--run_name", type=str, required=True, metavar="NAME",
+                        help='Prefix for naming intermediate files and logs.')
+
+    # --- Workflow Automation ---
+    flow_opts = pipe.add_argument_group(title='Workflow Automation')
+    flow_opts.add_argument("--out", metavar='DIR', default='./pipeline_results', 
+                          help='Output directory (default: %(default)s).')
+
+    # --- Genetic Context ---
+    gen_opts = pipe.add_argument_group(title='Genetic Parameters')
+    gen_opts.add_argument('--ld_ref_panel', metavar="PATH", required=True, type=str, 
+                         help='Path to LD reference panel (e.g., eur_w_ld_chr/).')
+
+    gen_opts.add_argument("--ncores", type=int, default=max(1, mp.cpu_count() // 2), metavar="INT",
+                          help='Number of CPU threads to use (default: %(default)s).')
+
+    gen_opts.add_argument("--hm3", required=True, metavar="SNPLIST",
+                          help="HapMap3 SNP list")
+
+    # ===============================
+    # OPTIONAL
+    # ===============================
+
+    gen_opts.add_argument("--info_filter", type=float, default=0.9, metavar="FLOAT",
+                          help="Munge INFO filter threshold [default: %(default)s]")
+
+    gen_opts.add_argument("--maf_filter", type=float, default=0.01, metavar="FLOAT",
+                          help="Munge MAF filter threshold [default: %(default)s]")
+
+    gen_opts.add_argument("--chunk_size", type=int, default=100000, metavar="INT",
+                          help="Chunk size for SNP processing [default: %(default)s]")
+
+    gen_opts.add_argument("--scr_pthr", type=float, default=0.999999, metavar="FLOAT",
+                          help="fastASSET screening threshold [default: %(default)s]")
+
+    gen_opts.add_argument("--meth_pval", default="DLM", metavar="METHOD",
+                          choices=["DLM", "IS", "B"],
+                          help="ASSET p-value method (DLM|IS|B) [default: %(default)s]; choices : DLM, IS, B : https://rdrr.io/bioc/ASSET/man/h.traits.html")
+
+    return pipe
+
+
+def parse_pleio_pipeline_args(subparser):
+    """
+    Defines command-line arguments for the PLEIO Pipeline mode.
+    """
+    description = (
+        "pleio pipeline: Automated End-to-End Analysis\n\n"
+        "1. Merges multiple VCF summary statistics.\n"
+        "2. Filters for common variants (inner join) and biallelic SNPs.\n"
+        "3. Automatically splits and formats data into pleio-ready TSV files.\n"
+        "4. Executes the PLEIO meta-analysis.\n"
+    )
+    epilog = (
+        "Example Usage:\n"
+        "  postgwas-pleio meta-analysis pleio pipeline \\\n"
+        "    --inputfile inputfile.tsv \\\n"
+        "    --run_name psych_study \\\n"
+        "    --ld_ref_panel ./eur_w_ld_chr/ \\\n"
+        "    --cores 4"
+    )
+
+    pipe = subparser.add_parser(
+        "pipeline",
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    # --- Input Options ---
+    in_opts = pipe.add_argument_group(title='Input Options')
+    in_opts.add_argument("--inputfile", required=True, metavar="FILE",
+        help=(
+            "A TSV file with five columns: sumstat_vcf, TYPE, SPREV, PPREV, sample_id.\n\n"
+            "sumstat_vcf: Path to the input GWAS sumstat VCF file.\n"
+            "TYPE:        'binary' or 'quantitative'.\n"
+            "SPREV:       Sample prevalence. Should be 0.5 for binary traits\n"
+            "             because we are using the effective sample size.\n"
+            "PPREV:       Population prevalence. Required for binary traits.\n"
+            "sample_id:   Unique trait identifier matching VCF samples.\n"
+            "\n"
+        ))
+    in_opts.add_argument("--run_name", type=str, required=True, metavar="NAME",
+                        help='Prefix for naming intermediate files and logs.')
+    # --- Workflow Automation ---
+    flow_opts = pipe.add_argument_group(title='Workflow Automation')
+    flow_opts.add_argument("--out", metavar='DIR', default='./pipeline_results', 
+                          help='Output directory (default: %(default)s).')
+    # --- Genetic Context --- 
+    gen_opts = pipe.add_argument_group(title='Genetic Parameters')
+    gen_opts.add_argument('--ld_ref_panel', metavar="PATH", required=True, type=str, 
+                         help='Path to LD reference panel (e.g., eur_w_ld_chr/).') 
+    # Corrected from flag_opts to gen_opts (or flow_opts) 
+    gen_opts.add_argument('--cores', default=1, type=int, 
+                          help='Number of CPU threads to use (default: %(default)s).')
+    gen_opts.add_argument('--nis', default = int(100000), type = int,
+                        help='Number of samples for importance sampling. (default: %(default)s).')
+    gen_opts.add_argument('--flattening_p_values', default = False, action= 'store_true',
+        help='Flattening p-value distribution. This is necessary if you want to check lambda GC')
+    return pipe
+
+
+def parse_pleio_direct_args(subparser):
+    """
+    Defines command-line arguments for the PLEIO Pipeline mode.
+    """
+    description = (
+        "pleio direct: Direct PLEIO Analysis. It need following input files. \n\n"
+        "1. meta input data created by ldsc_preprocess.py \n"
+        "2. genetic covariance matrix created by ldsc_preprocess.py \n"
+        "3. non-genetic correlation matrix created by ldsc_preprocess.py \n"
+        "4. importance sampling files created by ldsc_preprocess.py \n"
+    )
+    epilog = (
+        "Example Usage:\n"
+        "  postgwas-pleio meta-analysis pleio direct \\\n"
+        "    --metain inputfile.tsv \\\n"
+        "    --run_name psych_study \\\n"
+        "    --ld_ref_panel ./eur_w_ld_chr/ \\\n"
+        "    --cores 4"
+    )
+
+    direct = subparser.add_parser(
+        "direct",
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    direct.add_argument('--out', default='pleio',type=str,
+        help='Path to the output. If --out is not set, PLEIO will use pleio as the default output directory.')
+    direct.add_argument('--metain', default=None, type=str,
+        help='input file: file prefix of the meta input data.')
+    direct.add_argument('--sg', default=None, type=str,
+        help='input file: file prefix of the genetic covariance matrix.')
+    direct.add_argument('--ce', default=None, type=str,
+        help='input file: file prefix of the non-genetic correlation matrix.')
+    direct.add_argument('--isf', default=None, type=str,
+        help='Filename Prefix for Estimated null-distribution cumulative densities. ')
+    direct.add_argument('--create', default = False, action='store_true',
+        help='If this flag is set, PLEIO will run importance sampling and create new isf. ')
+    direct.add_argument('--nis', default = int(100000), type = int,
+        help='Number of samples for importance sampling. ')
+    direct.add_argument('--blup', default = False, action='store_true',
+        help='If this flag is set, PLEIO will estimate Best Linear Unbiased Prediction (BLUP)'
+        'and write [output].blup.gz')
+    direct.add_argument('--flattening_p_values', default = False, action= 'store_true',
+        help='Flattening p-value distribution. This is necessary if you want to check lambda GC')
+    direct.add_argument('--parallel', default = False, action='store_true',
+        help='If this flag is set, PLEIO will run parallel computing ')
+    direct.add_argument('--ncores', default = mp.cpu_count() - 2, type = int, 
+        help='Number of cpu cores for parallel computing. If --ncores is not set, PLEIO will use n_cores - 1 as the default.')
+    direct.add_argument('--snp', default='SNP', type=str,
+        help='Name of SNP column (if not a name that ldsc understands). NB: case insensitive.')
+
+
+
+# def parse_pleio_direct_args(subparser):
+#     """
+#     Defines command-line arguments for the PLEIO Pipeline mode.
+#     """
+#     description = (
+#         "pleio-direct: Direct PLEIO Analysis\n\n"
+#         "1. Merges multiple VCF summary statistics.\n"
+#         "2. Filters for common variants (inner join) and biallelic SNPs.\n"
+#         "3. Automatically splits and formats data into pleio-ready TSV files.\n"
+#         "4. Executes the PLEIO meta-analysis.\n"
+#     )
+#     epilog = (
+#         "Example Usage:\n"
+#         "  postgwas-pleio meta-analysis pleio direct \\\n"
+#         "    --inputfile inputfile.tsv \\\n"
+#         "    --run_name psych_study \\\n"
+#         "    --ld_ref_panel ./eur_w_ld_chr/ \\\n"
+#         "    --cores 4"
+#     )
+
+#     pipe = subparser.add_parser(
+#         "direct",
+#         description=description,
+#         epilog=epilog,
+#         formatter_class=argparse.RawDescriptionHelpFormatter
+#     )
+#     # --- Input Options ---
+#     in_opts = pipe.add_argument_group(title='Input Options')
+#     in_opts.add_argument("--inputfile", required=True, metavar="FILE",
+#         help=(
+#             "A TSV file with five columns: sumstat_file, TYPE, SPREV, PPREV, sample_id.\n"
+#             "sumstat_file: Path to the input GWAS sumstat file (post-harmonization).\n"
+#             "TYPE: 'binary' or 'quantitative'.\n"
+#             "SPREV: Sample prevalence (cases/total). Can be blank for quantitative.\n"
+#             "       Note: PLEIO requires Effective Sample Size (Neff). If TYPE is 'binary'\n"
+#             "       and SPREV is blank, it defaults to 0.5 to match Neff assumptions.\n"
+#             "PPREV: Population prevalence. Required for binary traits; if empty, \n"
+#             "       the pipeline will throw a warning and may fail ldsc_preprocess.\n"
+#             "sample_id: Unique trait identifier for output files."
+#         ))
+#     in_opts.add_argument("--run_name", type=str, required=True, metavar="NAME",
+#                         help='Prefix for naming intermediate files and logs.')
+#     # --- Workflow Automation ---
+#     flow_opts = pipe.add_argument_group(title='Workflow Automation')
+#     flow_opts.add_argument("--out", metavar='DIR', default='./pipeline_results', 
+#                           help='Output directory (default: %(default)s).')
+#     # --- Genetic Context --- 
+#     gen_opts = pipe.add_argument_group(title='Genetic Parameters')
+#     gen_opts.add_argument('--ld_ref_panel', metavar="PATH", required=True, type=str, 
+#                          help='Path to LD reference panel (e.g., eur_w_ld_chr/).') 
+#     # Corrected from flag_opts to gen_opts (or flow_opts)
+#     gen_opts.add_argument('--cores', default=1, type=int, 
+#                           help='Number of CPU threads to use (default: %(default)s).')
+#     return pipe
+
+
+
 
 def parse_mtag_pipeline_args(subparser):
     """
@@ -17,13 +421,11 @@ def parse_mtag_pipeline_args(subparser):
     # Standard text description (Rich tags removed for standard argparse compatibility)
     description = (
         "mtag-pipeline: Automated End-to-End Analysis\n\n"
-        "1. Merges multiple VCF summary statistics into a single cohort.\n"
+        "1. Merges multiple VCF summary statistics\n"
         "2. Filters for common variants (inner join) and biallelic SNPs.\n"
         "3. Automatically splits and formats data into MTAG-ready TSVs.\n"
-        "4. Executes the MTAG statistical engine.\n\n"
-        "This mode reduces manual formatting errors by using VCF metadata."
+        "4. Executes the MTAG meta analysis\n\n"
     )
-
     epilog = (
         "Example Usage:\n"
         "  postgwas-pleio meta-analysis mtag pipeline \n"
@@ -32,7 +434,6 @@ def parse_mtag_pipeline_args(subparser):
         "    --ld_ref_panel ./eur_ld_ref/ \n"
         "    --cores 4"
     )
-
     # Use the built-in RawDescriptionHelpFormatter to preserve the newlines in description/epilog
     pipe = subparser.add_parser(
         "pipeline",
@@ -40,19 +441,16 @@ def parse_mtag_pipeline_args(subparser):
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-
     # --- Input VCF Options ---
     in_opts = pipe.add_argument_group(title='VCF Input Options')
     in_opts.add_argument("--vcfs", nargs="+", required=True, metavar="FILE.vcf.gz",
                         help='List of raw VCF.gz files to process.')
     in_opts.add_argument("--run_name", type=str, required=True, metavar="NAME",
                         help='Prefix for naming intermediate files and logs.')
-
     # --- Workflow Automation ---
     flow_opts = pipe.add_argument_group(title='Workflow Automation')
     flow_opts.add_argument("--out", metavar='DIR', default='./pipeline_results', 
                           help='Output directory. (default: %(default)s)')
-
     # --- Genetic Context --- 
     gen_opts = pipe.add_argument_group(title='Genetic Parameters')
     gen_opts.add_argument('--no_overlap', action='store_true', help='Assume no sample overlap.')
@@ -60,7 +458,6 @@ def parse_mtag_pipeline_args(subparser):
     gen_opts.add_argument('--equal_h2', action='store_true', help='Assume equal heritability.')
     gen_opts.add_argument('--ld_ref_panel', metavar="PATH", required=True, type=str, 
                          help='Path to LD reference panel.') 
-
     # --- Execution Flags ---
     flag_opts = pipe.add_argument_group(title='MTAG Execution Flags')
     flag_opts.add_argument('--fdr', action='store_true', help='Perform max FDR calculations.')
@@ -70,8 +467,6 @@ def parse_mtag_pipeline_args(subparser):
     flag_opts.add_argument('--chunksize', default=10000, type=int, 
                           help='Variants per MTAG chunk. (default: %(default)s)')
     flag_opts.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes.")
-
-
     return pipe
     
 

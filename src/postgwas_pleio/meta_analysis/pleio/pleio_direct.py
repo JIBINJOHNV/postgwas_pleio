@@ -21,26 +21,31 @@ def validate_paths(paths: List[Optional[str]], description: str):
     logger.info(f"Validation Passed: {description}")
 
 
-def mtag_direct_runner(args):
-    """
-    Takes the parsed 'args' Namespace and rebuilds the command 
-    to call the external mtag.py script. 
-    """
-    cmd = ["micromamba", "run", "-n", "mtag", "python", "/opt/mtag/mtag.py"] 
-    
-    # Convert the 'args' object back into a list of strings for subprocess
-    # We skip 'mode' because mtag.py doesn't know what that is
+
+def pleio_direct_runner(args):
+
+    if args.isf is None and not args.create:
+        logger.info("No ISF provided → enabling --create automatically")
+        args.create = True
+
+    cmd = [
+        "micromamba", "run", "-n", "pleio",
+        "python", "/opt/pleio/pleio.py"
+    ]
+
     for key, value in vars(args).items():
+
         if key == "mode" or value is None or value is False:
             continue
-        
-        # Format the flag (e.g., 'sumstats' becomes '--sumstats')
-        flag = f"--{key.replace('_', '-')}"
-        
-        if isinstance(value, bool): # For action="store_true"
+
+        flag = f"--{key}"
+
+        if isinstance(value, bool):
             cmd.append(flag)
         else:
-            cmd.append(flag)
-            cmd.append(str(value))
+            cmd.extend([flag, str(value)])
 
     subprocess.run(cmd, check=True)
+
+
+

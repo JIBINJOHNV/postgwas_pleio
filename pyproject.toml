@@ -19,7 +19,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
-# --- DEPENDENCIES ---
 dependencies = [
     "rich",
     "pandas",
@@ -29,12 +28,13 @@ dependencies = [
     "polars",
 ]
 
-# --- ENTRY POINTS ---
+# ✅ FIXED
+[tool.setuptools.package-data]
+"postgwas_pleio.meta_analysis.asset" = ["R/*.R"]
+
 [project.scripts]
 postgwas-pleio = "postgwas_pleio.__main__:main"
 
-# --- PACKAGE DISCOVERY ---
 [tool.setuptools.packages.find]
-# This tells setuptools to look for 'postgwas_pleio' inside the 'src' folder
 where = ["src"]
 include = ["postgwas_pleio*"]

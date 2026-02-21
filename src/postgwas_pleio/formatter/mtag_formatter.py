@@ -111,13 +111,13 @@ def mtag_formatter(sumstat_vcfs: List[str], output_folder: str, run_name: str,n_
         set -e
         bcftools merge --threads {n_threads} -m none {vcf_input_str} | \\
         bcftools view --threads {n_threads} -e 'FMT/ES == "."' | \\
-        bcftools view --threads {n_threads} --min-alleles 2 --max-alleles 2 | \\
+        bcftools view --threads {n_threads} --min-alleles 2 --max-alleles 2 | \\ 
         bcftools query --print-header \\
-        -f '%ID\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%AF\\t]\\t[%ES\\t]\\t[%SE\\t]\\t[%NEF\\t]\\t[%LP\\t]\\t[%EZ\\t]\\n' | \\
-        sed 's/\\t$//' > "{master_tsv}" 
-    """).strip()
+        -f '%ID\t%CHROM\t%POS\t%REF\t%ALT\t[%AF\t][%ES\t][%SE\t][%NEF\t][%LP\t][%SI\t][%EZ\t]\n' | \\
+        sed 's/\\t$//' > "{master_tsv}"
+    """).strip() 
     try:
-        with open(log_file, "w") as f_log:
+        with open(log_file, "w") as f_log: 
             # --- START LOGGING METADATA ---
             f_log.write(f"PostGWAS-Pleio Pipeline Log\n")
             f_log.write(f"Run Name: {run_name}\n")

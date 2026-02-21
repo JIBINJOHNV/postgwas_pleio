@@ -5,16 +5,15 @@ from rich.table import Table
 # Import tool entrypoints
 # Ensure these paths match your directory structure
 from postgwas_pleio.meta_analysis.mtag.main import main as mtag_main
-
-
+from postgwas_pleio.meta_analysis.pleio.main import main as pleio_main
+from postgwas_pleio.meta_analysis.asset.main import main as asset_main
 console = Console()
 
 # Registry of tools available under the 'meta-analysis' category
 TOOLS = {
     "mtag": (mtag_main, "Multi-trait Analysis of GWAS (Turley et al. 2018)"),
-    "asset": (None, "Association Analysis based on Subsets (ASSET)"),
-    "fastasset": (None, "Efficient implementation of ASSET"),
-    "pleio": (None, "Pleiotropy-informed meta-analysis"),
+    "asset": (asset_main, "Association Analysis based on Subsets (ASSET)"),
+    "pleio": (pleio_main, "Pleiotropy-informed meta-analysis"),
 }
 
 def main():

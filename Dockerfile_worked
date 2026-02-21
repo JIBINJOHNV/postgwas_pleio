@@ -1,0 +1,39 @@
+FROM --platform=linux/amd64 jibinjv/postgwas-pleio:1.0
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    procps git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ⭐ shallow clone
+RUN git clone --depth 1 https://github.com/cuelee/pleio.git /opt/pleio && \
+    git clone --depth 1 https://github.com/bulik/ldsc.git /opt/pleio/ldsc
+
+COPY pyproject.toml README.md ./
+COPY src/ ./src/ 
+
+# ⭐ SINGLE LAYER ENV CREATION
+RUN micromamba create -n postgwas -y -c conda-forge -c bioconda \
+    python=3.11 pip bcftools "polars=0.20.21" "pyarrow=14" pandas numpy scipy bitarray pyyaml && \
+    micromamba run -n postgwas pip install rich rich-argparse && \
+    micromamba run -n postgwas pip install --no-deps --no-cache-dir . && \
+    micromamba create -n pleio -y -c conda-forge \
+    python=3.8 pandas=1.1.5 numpy=1.21 scipy=1.7 bitarray pyyaml && \
+    rm -rf /opt/pleio/.git /opt/pleio/ldsc/.git && \
+    micromamba clean --all --yes && \
+    rm -rf /root/.cache/pip && \
+    find /opt/conda -name "*.a" -delete && \
+    find /opt/conda -type d -name "tests" -prune -exec rm -rf {} + && \
+    find /opt/conda -type d -name "__pycache__" -exec rm -rf {} + && \
+    find /opt/conda -name "*.pyc" -delete && \
+    chown -R mambauser:mambauser /opt/conda /opt/pleio /app
+
+ENV PATH="/opt/pleio:/opt/pleio/ldsc:${PATH}"
+
+USER mambauser
+
+ENTRYPOINT ["micromamba", "run", "-n", "postgwas"]
+CMD ["postgwas-pleio"]
