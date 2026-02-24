@@ -234,8 +234,38 @@ run_fastasset_stage <- function(asset_input_df,
 
     message("   Chunk ", c, " completed")
   }
-
   message("\n✅ fastASSET stage finished")
+
+# ---- Combine ----
+  chunk_files <- sort(list.files(output_dir,
+                                 pattern="^fastasset_chunk_.*\\.tsv\\.gz$",
+                                 full.names=TRUE))
+
+  if (length(chunk_files) == 0) return(invisible(NULL))
+
+  one_file  <- file.path(output_dir, paste0(run_name, "_fastasset_1sided.tsv.gz"))
+  two_file  <- file.path(output_dir, paste0(run_name, "_fastasset_2sided.tsv.gz"))
+
+  first_one <- first_two <- TRUE
+
+  for (f in chunk_files) {
+
+    dt <- fread(f)
+    if (nrow(dt) == 0) next
+
+    if (any(dt$analysis_type=="1sided")) {
+      fwrite(dt[analysis_type=="1sided"], one_file, append=!first_one)
+      first_one <- FALSE
+    }
+
+    if (any(dt$analysis_type=="2sided")) {
+      fwrite(dt[analysis_type=="2sided"], two_file, append=!first_two)
+      first_two <- FALSE
+    }
+  }
+
+  message("✅ Combined files created")
+
 }
 
 

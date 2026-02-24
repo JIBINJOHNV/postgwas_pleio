@@ -140,6 +140,7 @@ def asset_formatter(inputfile: str, output_folder: str, run_name: str, n_threads
     master_tsv = preprocess_dir / f"{run_name}_master_wide.tsv"
     log_file = output_dir / f"{run_name}_pipeline.log"
     input_df = pd.read_csv(inputfile, sep=None, engine='python')
+    input_df['TYPE'] = input_df['TYPE'].str.lower()
     vcf_files = input_df['sumstat_vcf'].tolist() 
     input_sample_ids = input_df['sample_id'].tolist()
     
@@ -159,7 +160,7 @@ def asset_formatter(inputfile: str, output_folder: str, run_name: str, n_threads
     """).strip()
     try:
         with open(log_file, "w") as f_log:
-            f_log.write(f"FastASSET Pipeline Initialization: {run_name}\n")
+            f_log.write(f"FastASSET ldsc sample wise input file preparation started: {run_name}\n")
             f_log.write("-" * 50 + "\n")
             f_log.flush()
             subprocess.run(cmd, shell=True, check=True, executable="/bin/bash", stdout=f_log, stderr=f_log)

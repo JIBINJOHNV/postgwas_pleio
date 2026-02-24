@@ -1,7 +1,8 @@
 ############################################################
 # ===================== BUILDER STAGE =====================
 ############################################################
-FROM --platform=linux/amd64 jibinjv/postgwas-pleio:1.0 AS builder
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM jibinjv/postgwas-pleio:1.0 AS builder
 
 USER root
 
@@ -19,15 +20,22 @@ WORKDIR /app
 # Clone required tools
 # ---------------------------------------------------------
 RUN git clone --depth 1 https://github.com/cuelee/pleio.git /opt/pleio && \
-    git clone --depth 1 https://github.com/bulik/ldsc.git /opt/pleio/ldsc
+    git clone --depth 1 https://github.com/bulik/ldsc.git /opt/pleio/ldsc && \
+    git clone --depth 1 https://github.com/RayDebashree/PLACO.git /opt/placo
+
+RUN rm -f /opt/placo/PLACO_v0.2.0_example.R && \
+    rm -f /opt/placo/PLACO_v0.2.0_manual.pdf
+RUN rm -rf /opt/pleio/ldsc/test 
 
 # ---------------------------------------------------------
 # Create environments (FULL BUILD)
 # ---------------------------------------------------------
-RUN micromamba create -n postgwas -y -c conda-forge -c bioconda \
+RUN micromamba create -n postgwas -y \
+    -c conda-forge -c bioconda -c dnachun \
     python=3.11 pip bcftools \
     polars=0.20.21 pyarrow=14 \
     pandas numpy scipy bitarray pyyaml poetry \
+    metal \
     compilers make \
     r-base=4.3.3 r-remotes r-data.table r-matrix r-tidyverse \
     r-future r-parallelly r-rcpp r-rcpparmadillo r-plyr r-argparse \
@@ -84,13 +92,15 @@ WORKDIR /app
 # ---------------------------------------------------------
 COPY --from=builder /opt/conda /opt/conda
 COPY --from=builder /opt/pleio /opt/pleio
+COPY --from=builder /opt/mtag /opt/mtag
+COPY --from=builder /opt/placo /opt/placo
 COPY --from=builder /app /app
 
 # ---------------------------------------------------------
 # Final cleanup + ownership
 # ---------------------------------------------------------
 RUN find /opt/conda -type f -executable -exec strip --strip-unneeded {} + || true && \
-    chown -R mambauser:mambauser /opt/conda /opt/pleio /app
+    chown -R mambauser:mambauser /opt/conda /opt/pleio /opt/mtag /app
 
 ENV PATH="/opt/pleio:/opt/pleio/ldsc:${PATH}"
 

@@ -9,6 +9,7 @@ def mtag_workflow(args, remainder=None):
     remainder will be None for pipeline mode, 
     but will contain a list of strings for direct mode.
     """
+    
     if args.mode == "pipeline":
         logger.info("Executing MTAG Pipeline Runner...")
         print("Running Pipeline...")
