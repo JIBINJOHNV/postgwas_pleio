@@ -8,6 +8,152 @@ import argparse
 import multiprocessing as mp
 
 
+def parse_genomicpca_pipeline_args(subparser):
+    """
+    Defines command-line arguments for the GenomicPCA pipeline.
+    """
+
+    description = (
+        "GenomicPCA Pipeline: Multivariate GWAS Meta-Analysis\n\n"
+        "Pipeline Steps:\n"
+        "1. Munge GWAS summary statistics using GenomicSEM.\n"
+        "2. Estimate genetic covariance/correlation matrices using LDSC.\n"
+        "3. Perform GenomicPCA decomposition of the LDSC matrix.\n"
+        "4. Run multivariate GWAMA using PCA-derived loadings.\n"
+    )
+
+    epilog = (
+        "Example Usage:\n"
+        "  postgwas-pleio meta-analysis genomicpca pipeline \\\n"
+        "    --inputfile gwas_manifest.tsv \\\n"
+        "    --run_name psych_genomicpca \\\n"
+        "    --out ./genomicpca_results \\\n"
+        "    --hm3 w_hm3.snplist \\\n"
+        "    --ld_ref eur_w_ld_chr/ \\\n"
+        "    --approach correlation\n"
+    )
+
+    pipe = subparser.add_parser(
+        "pipeline",
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    # =========================================================
+    # Input Options
+    # =========================================================
+    in_opts = pipe.add_argument_group(title="Input Options")
+
+    in_opts.add_argument(
+        "--inputfile",
+        required=True,
+        metavar="FILE",
+        help=(
+            "TSV manifest describing GWAS summary statistics.\n\n"
+            "Required columns:\n"
+            "  FILE   : Path to GWAS summary statistic file\n"
+            "  NAME   : Unique trait identifier\n"
+            "  SPREV  : Sample prevalence (binary traits)\n"
+            "  PPREV  : Population prevalence (binary traits)\n\n"
+            "Example:\n"
+            "  FILE                        NAME   SPREV   PPREV\n"
+            "  scz.sumstats.gz             SCZ    0.5     0.01\n"
+            "  bipolar.sumstats.gz         BIP    0.5     0.02\n"
+        )
+    )
+
+    in_opts.add_argument(
+        "--run_name",
+        required=True,
+        metavar="NAME",
+        help="Prefix used for naming intermediate files, output files, and logs."
+    )
+
+    in_opts.add_argument(
+        "--cores",
+        type=int,
+        default=max(1, mp.cpu_count() // 2),
+        metavar="INT",
+        help="Number of parallel CPU cores to use. [default: %(default)s]"
+    )
+
+    in_opts.add_argument(
+        "--hm3",
+        required=True,
+        metavar="FILE",
+        help=(
+            "Path to HapMap3 SNP list used during the munge stage.\n"
+            "Example: w_hm3.snplist"
+        )
+    )
+
+    in_opts.add_argument(
+        "--ld_ref",
+        required=True,
+        metavar="DIR",
+        help=(
+            "Directory containing LDSC LD reference panel.\n\n"
+            "Example structure:\n"
+            "  eur_w_ld_chr/\n"
+            "      chr1.l2.ldscore.gz\n"
+            "      chr2.l2.ldscore.gz\n"
+        )
+    )
+
+    # =========================================================
+    # Output Options
+    # =========================================================
+    out_opts = pipe.add_argument_group(title="Output Options")
+
+    out_opts.add_argument(
+        "--out",
+        default="./genomicpca_results",
+        metavar="DIR",
+        help="Output directory for pipeline results. [default: %(default)s]"
+    )
+
+    # =========================================================
+    # Quality Control Options
+    # =========================================================
+    qc_opts = pipe.add_argument_group(title="Quality Control Options")
+
+    qc_opts.add_argument(
+        "--info_filter",
+        type=float,
+        default=0.7,
+        metavar="FLOAT",
+        help="INFO score threshold for SNP filtering. [default: %(default)s]"
+    )
+
+    qc_opts.add_argument(
+        "--maf_filter",
+        type=float,
+        default=0.3,
+        metavar="FLOAT",
+        help="Minor allele frequency threshold. [default: %(default)s]"
+    )
+
+    # =========================================================
+    # GenomicPCA Options
+    # =========================================================
+    gpca_opts = pipe.add_argument_group(title="GenomicPCA Options")
+
+    gpca_opts.add_argument(
+        "--approach",
+        default="both",
+        choices=["correlation", "covariance", "both"],
+        metavar="TYPE",
+        help=(
+            "GenomicPCA method.\n"
+            "  correlation → PCA on genetic correlation matrix (recommended)\n"
+            "  covariance  → PCA on genetic covariance matrix\n"
+            "  both        → run both approaches\n"
+            "[default: %(default)s]"
+        )
+    )
+
+    return pipe
 
 
 def parse_placo_direct_args(subparser):

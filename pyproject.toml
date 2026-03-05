@@ -30,7 +30,7 @@ dependencies = [
 
 # ✅ FIXED
 [tool.setuptools.package-data]
-"postgwas_pleio.meta_analysis.asset" = ["R/*.R"]
+postgwas_pleio = ["**/*.R"]
 
 [project.scripts]
 postgwas-pleio = "postgwas_pleio.__main__:main"

@@ -39,7 +39,7 @@ RUN micromamba create -n postgwas -y \
     compilers make \
     r-base=4.3.3 r-remotes r-data.table r-matrix r-tidyverse \
     r-future r-parallelly r-rcpp r-rcpparmadillo r-plyr r-argparse \
-    r-reticulate r-rcpptoml \
+    r-reticulate r-rcpptoml r-checkmate \
     r-biocmanager r-lavaan r-psych r-igraph r-qgraph && \
     micromamba create -n pleio -y -c conda-forge \
     python=3.8 pandas=1.1.5 numpy=1.21 scipy=1.7 bitarray pyyaml

@@ -9,7 +9,7 @@ from postgwas_pleio.meta_analysis.pleio.main import main as pleio_main
 from postgwas_pleio.meta_analysis.asset.main import main as asset_main
 from postgwas_pleio.meta_analysis.metal.main import main as metal_main
 from postgwas_pleio.meta_analysis.placo.main import main as placo_main
-
+from postgwas_pleio.meta_analysis.genomicpca.main import main as genomicpca_main
 console = Console()
 
 # Registry of tools available under the 'meta-analysis' category
@@ -19,6 +19,7 @@ TOOLS = {
     "pleio": (pleio_main, "Pleiotropy-informed meta-analysis"),
     "metal": (metal_main, "Metal meta-analysis"),
     "placo": (placo_main, "Placo meta-analysis"),
+    "genomicpca": (genomicpca_main, "genomicpca meta-analysis"),
 }
 
 def main():

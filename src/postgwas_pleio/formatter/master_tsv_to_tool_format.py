@@ -348,6 +348,7 @@ def run_postprocess_sample_specific_from_df(
     sample_suffix_replace: Optional[Dict[str, str]],
     sample_convert_to_raw_p_value: bool,
     logger,
+    output_map="matrix_tsv",
 ) -> Path:
     outdir = Path(sample_specific_directory)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -385,6 +386,39 @@ def run_postprocess_sample_specific_from_df(
         if sample_suffix_replace:
             df_sample = _replace_suffixes(df_sample, sample_suffix_replace, logger)
         # 6️⃣ Retention
+        # if sample_specific_retained_cols:
+        #     transformed_cols = _transform_retained_columns(
+        #         sample_specific_retained_cols,
+        #         sample_header_map,
+        #         sample_suffix_replace,
+        #     )
+        #     retained_cols = []
+        #     seen = set()
+        #     for col in transformed_cols:
+        #         normalized_col = col.lstrip(".")
+        #         # 1️⃣ Direct match
+        #         if col in df_sample.columns and col not in seen:
+        #             retained_cols.append(col)
+        #             seen.add(col)
+        #             continue
+        #         # 2️⃣ Suffix match (support :, _, and . delimiters)
+        #         matches = [
+        #             c for c in df_sample.columns
+        #             if (
+        #                 c.endswith(f":{normalized_col}") or
+        #                 c.endswith(f"_{normalized_col}") or
+        #                 c.endswith(f".{normalized_col}")
+        #             )
+        #         ]
+        #         for m in matches:
+        #             if m not in seen:
+        #                 retained_cols.append(m)
+        #                 seen.add(m)
+        #     if not retained_cols:
+        #         log_warning(logger, f"{s} → No retained columns matched after renaming")
+        #     else:
+        #         df_sample = df_sample.select(retained_cols)
+        # 6️⃣ Retention (preserve order from sample_specific_retained_cols)
         if sample_specific_retained_cols:
             transformed_cols = _transform_retained_columns(
                 sample_specific_retained_cols,
@@ -393,14 +427,14 @@ def run_postprocess_sample_specific_from_df(
             )
             retained_cols = []
             seen = set()
-            for col in transformed_cols:
-                normalized_col = col.lstrip(".")
+            for requested_col in transformed_cols:
+                normalized_col = requested_col.lstrip(".")
                 # 1️⃣ Direct match
-                if col in df_sample.columns and col not in seen:
-                    retained_cols.append(col)
-                    seen.add(col)
+                if requested_col in df_sample.columns and requested_col not in seen:
+                    retained_cols.append(requested_col)
+                    seen.add(requested_col)
                     continue
-                # 2️⃣ Suffix match (support :, _, and . delimiters)
+                # 2️⃣ Suffix matches
                 matches = [
                     c for c in df_sample.columns
                     if (
@@ -409,6 +443,8 @@ def run_postprocess_sample_specific_from_df(
                         c.endswith(f".{normalized_col}")
                     )
                 ]
+                # IMPORTANT: preserve df column order but attach them
+                # under the requested column position
                 for m in matches:
                     if m not in seen:
                         retained_cols.append(m)
@@ -416,6 +452,8 @@ def run_postprocess_sample_specific_from_df(
             if not retained_cols:
                 log_warning(logger, f"{s} → No retained columns matched after renaming")
             else:
+                # enforce exact order
+                retained_cols = [c for c in retained_cols if c in df_sample.columns]
                 df_sample = df_sample.select(retained_cols)
         # 7️⃣ Strip sample prefix ONLY at the very end
         rename_map = {
@@ -429,7 +467,7 @@ def run_postprocess_sample_specific_from_df(
         out_file = outdir / f"{s}_matrix.tsv"
         df_sample.write_csv(out_file, separator="\t")
         sample_output_map.append(
-            {"sample_id": s, "matrix_tsv": str(out_file)}
+            {"sample_id": s, output_map : str(out_file)}
         )
         log_detected(logger, f"{s} → Wrote {out_file}")
     output_df = pl.DataFrame(sample_output_map)
@@ -445,6 +483,7 @@ def run_mastertsv_to_toolformat_pipeline(*,mode: Sequence[str],
         input_manifest_df: pl.DataFrame,
         joined_out_tsv: Optional[PathLike]=None,
         sample_specific_directory: Optional[PathLike]=None,
+        sample_specific_ldsc_directory: Optional[PathLike]=None,
         joined_remove_duplicate_ids: bool=False,
         joined_create_unique_id: bool=False,
         joined_sample_retained_cols: Optional[Sequence[str]]=None,
@@ -457,15 +496,20 @@ def run_mastertsv_to_toolformat_pipeline(*,mode: Sequence[str],
         sample_header_map: Optional[Dict[str,str]]=None,
         sample_suffix_replace: Optional[Dict[str,str]]=None,
         sample_convert_to_raw_p_value: bool = False,
+        sample_ldsc_remove_duplicate_ids: bool=False,
+        sample_ldsc_create_unique_id: bool=False,
+        sample_ldsc_specific_retained_cols: Optional[Sequence[str]]=None,
+        sample_ldsc_header_map: Optional[Dict[str,str]]=None,
+        sample_ldsc_suffix_replace: Optional[Dict[str,str]]=None,
+        sample__ldscconvert_to_raw_p_value: bool = False,
         log_file: Optional[PathLike]=None)->Dict[str,Path]:
     
     if isinstance(input_manifest_df, pd.DataFrame):
         input_manifest_df = pl.from_pandas(input_manifest_df)
     elif not isinstance(input_manifest_df, pl.DataFrame):
         raise TypeError("input_manifest_df must be pandas or polars DataFrame")
-    
     mode_set={m.strip().lower() for m in mode}
-    valid={"joined_samples","sample_specific"}
+    valid={"joined_samples","sample_specific","sample_specific_ldsc"}
     
     if not mode_set or not mode_set.issubset(valid):
         raise ValueError(f"mode must be subset of {valid}")
@@ -477,6 +521,7 @@ def run_mastertsv_to_toolformat_pipeline(*,mode: Sequence[str],
     df=_prepare_base_dataframe(tsv_path,logger)
     df=_filter_by_manifest(df,input_manifest_df,logger)
     results={}
+    
     if "joined_samples" in mode_set:
         if joined_out_tsv is None:
             raise ValueError("joined_out_tsv required")
@@ -505,6 +550,23 @@ def run_mastertsv_to_toolformat_pipeline(*,mode: Sequence[str],
             sample_suffix_replace=sample_suffix_replace,
             sample_convert_to_raw_p_value=sample_convert_to_raw_p_value,
             logger=logger,
+            output_map="matrix_tsv",
+        )
+    if "sample_specific_ldsc" in mode_set:
+        if sample_specific_ldsc_directory is None:
+            raise ValueError("sample_specific_directory required")
+        results["sample_specific_ldsc"]=run_postprocess_sample_specific_from_df(
+            df,
+            sample_specific_directory=sample_specific_ldsc_directory,
+            input_manifest_df=input_manifest_df,
+            sample_remove_duplicate_ids=sample_ldsc_remove_duplicate_ids,
+            sample_create_unique_id=sample_ldsc_create_unique_id,
+            sample_specific_retained_cols=sample_ldsc_specific_retained_cols,
+            sample_header_map=sample_ldsc_header_map,
+            sample_suffix_replace=sample_ldsc_suffix_replace,
+            sample_convert_to_raw_p_value=sample__ldscconvert_to_raw_p_value,
+            logger=logger,
+            output_map="ldsc_matrix_tsv"
         )
     log_action(logger,"POSTPROCESS PIPELINE COMPLETED")
     return results
