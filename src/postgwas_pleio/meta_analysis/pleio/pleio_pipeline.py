@@ -124,7 +124,7 @@ def pleio_pipeline_runner(args):
     # ---------------------------
     # STEP 4: LDSC preprocess
     # ---------------------------
-    ldsc_out_dir = out_path / "pleio_ldsc"
+    ldsc_out_dir = out_path / "2_pleio_ldsc"
     ldsc_out_dir.mkdir(parents=True, exist_ok=True)
 
     ldsc_log = out_path / f"{args.run_name}_ldsc_preprocess.log"
@@ -162,7 +162,7 @@ def pleio_pipeline_runner(args):
     if getattr(args, "flattening_p_values", False):
         cmd_pleio_meta.append("--flattening_p_values")
 
-    cmd_pleio_meta.extend(["--out", str(out_path / f"{args.run_name}_pleio_results")])
+    cmd_pleio_meta.extend(["--out", str(out_path / f"3_{args.run_name}_pleio_results")])
 
     print("[STEP 5] Starting Pleio meta-analysis...", flush=True)
     run_cmd_with_log(cmd_pleio_meta, pleio_log, "PLEIO META")

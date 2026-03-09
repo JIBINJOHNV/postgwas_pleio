@@ -134,6 +134,8 @@ def mtag_pipeline_runner(args):
         cmd_mtag.append("--std_betas")
     if getattr(args, "fdr", False):
         cmd_mtag.append("--fdr")
+    if getattr(args, "incld_ambig_snps", False):
+        cmd_mtag.append("--incld_ambig_snps")
 
     print(f"DEBUG COMMAND: {' '.join(cmd_mtag)}\n", flush=True)
 

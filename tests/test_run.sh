@@ -76,6 +76,25 @@ docker run --platform linux/amd64 --rm -it  \
 
 
 
+docker run --platform linux/amd64 --rm -it \
+    -v /Users/JJOHN41/:/Users/JJOHN41/ jibinjv/postgwas-pleio:1.2 \
+        postgwas-pleio meta-analysis  genomicpca pipeline \
+        --inputfile /Users/JJOHN41/Downloads/osteoarthritis_erectile_dysfunction/harmonisation/pleio_input.txt \
+        --run_name genomicpca_test \
+        --cores 8 \
+        --hm3 /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/w_hm3.snplist \
+        --ld_ref /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
+        --out /Users/JJOHN41/Downloads/kadoorie_biobank/vcf_files/genomicpca_test \
+        --info_filter 0.7 \
+        --maf_filter 0.01 \
+        --approach both 
+
+
+
+
+
+
+
 
 
 
