@@ -33,7 +33,7 @@ RUN rm -rf /opt/pleio/ldsc/test
 RUN micromamba create -n postgwas -y \
     -c conda-forge -c bioconda -c dnachun \
     python=3.11 pip bcftools \
-    polars=0.20.21 pyarrow=14 \
+    polars=0.20.21 pyarrow=14 psutil \
     pandas numpy scipy bitarray pyyaml poetry \
     metal \
     compilers make \
@@ -81,8 +81,17 @@ USER root
 # ---------------------------------------------------------
 # Runtime minimal deps only
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# Runtime deps + DOCKER CLI (Added for DinD)
+# ---------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     procps libcurl4-openssl-dev libssl-dev libxml2 \
+    ca-certificates curl gnupg \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bullseye stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

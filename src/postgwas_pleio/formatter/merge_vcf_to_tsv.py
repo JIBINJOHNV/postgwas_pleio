@@ -94,7 +94,8 @@ def build_query_format(fixed_fields, format_fields):
 
 # =========================================================
 # 3️⃣ Merge + query
-# =========================================================
+# ========================================================= 
+
 def merge_vcf_to_tsv(
     vcf_list,
     out_tsv,
@@ -103,27 +104,54 @@ def merge_vcf_to_tsv(
     logger,
     n_threads=4,
     bcftools_exec="bcftools",
+    require_variant_in_all_samples=True,
 ):
     """
     Merge VCFs with bcftools merge, apply filters, and query to TSV.
-    Keeps your hard-coded filter on ES:
-        bcftools view -e 'FMT/ES == "."'
+
+    Parameters
+    ----------
+    vcf_list : list
+        List of VCF files to merge
+    out_tsv : str
+        Output TSV path
+    fixed_fields : list
+        Fixed VCF fields for bcftools query
+    format_fields : list
+        FORMAT fields for bcftools query
+    logger : logger
+        Logging object
+    n_threads : int
+        Number of threads
+    bcftools_exec : str
+        Path to bcftools executable
+    require_variant_in_all_samples : bool
+        If True, remove variants missing in any sample
+        (uses: bcftools view -e 'FMT/ES == "."')
     """
+
     log_action(logger, "Starting VCF merge")
 
     query_fmt = build_query_format(fixed_fields, format_fields)
 
-    # shell-safe quoting for VCF paths and bcftools executable
+    # shell-safe quoting
     vcf_str = " ".join(shlex.quote(str(v)) for v in vcf_list)
     out_tsv = str(out_tsv)
     out_tsv_q = shlex.quote(out_tsv)
     bcftools_q = shlex.quote(str(bcftools_exec))
 
+    # optional filter
+    missing_filter_cmd = ""
+    if require_variant_in_all_samples:
+        missing_filter_cmd = (
+            f"{bcftools_q} view --threads {n_threads} -e 'FMT/ES == \".\"' | \\"
+        )
+
     cmd = textwrap.dedent(
         f"""
         set -euo pipefail
         {bcftools_q} merge --threads {n_threads} -m none {vcf_str} | \\
-        {bcftools_q} view --threads {n_threads} -e 'FMT/ES == "."' | \\
+        {missing_filter_cmd}
         {bcftools_q} view --threads {n_threads} --min-alleles 2 --max-alleles 2 | \\
         {bcftools_q} query --print-header -f '{query_fmt}' | \\
         sed 's/\\t$//' > {out_tsv_q}
@@ -237,6 +265,7 @@ def run_merge_vcf_to_tsv_pipeline(
     qc_n_rows=1_000_000,
     bcftools_exec="bcftools",
     fail_fast_on_merge=True,
+    require_variant_in_all_samples=True,
 ):
     """
     End-to-end:
@@ -317,6 +346,7 @@ def run_merge_vcf_to_tsv_pipeline(
             logger,
             n_threads=n_threads,
             bcftools_exec=bcftools_exec,
+            require_variant_in_all_samples=require_variant_in_all_samples,
         )
     except Exception as e:
         qc_failures.append("Merge failed")

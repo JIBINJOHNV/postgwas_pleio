@@ -253,13 +253,23 @@ def validate_manifest(manifest_path, output_dir):
 
     binary = df["TYPE"]=="binary"
 
-    wrong_sprev = df.loc[binary & (df["SPREV"]!=0.5),"sample_id"].tolist()
+    wrong_sprev = df.loc[binary & (df["SPREV"].isna()), "sample_id"].tolist()
+    sprev_half = df.loc[binary & (df["SPREV"] == 0.5), "sample_id"].tolist()
+
     if wrong_sprev:
-        report.warn(f"SPREV forced to 0.5 for: {wrong_sprev}")
-        df.loc[binary,"SPREV"]=0.5
-        report.correct("SPREV corrected")
+        report.warn(f"Missing SPREV for binary traits: {wrong_sprev}")
+        report.warn(
+            "SPREV will be estimated from the GWAS summary statistics as "
+            "median(Ncases) / median(total sample size)."
+        )
+    elif sprev_half:
+        report.warn(f"SPREV provided as 0.5 for these binary traits: {sprev_half}")
+        report.warn(
+            "This assumes equal case and control sample sizes. "
+            "If that is not correct, please provide the true SPREV."
+        )
     else:
-        report.detect("SPREV already correct")
+        report.detect("SPREV is already available for all binary traits.")
 
     miss = df.loc[binary & df["PPREV"].isna(),"sample_id"].tolist()
     if miss:

@@ -105,7 +105,7 @@ def generate_metal_script(
     # -------------------------
 
     lines.append("")
-    lines.append(f"OUTFILE {output_prefix}.tbl")
+    lines.append(f"OUTFILE {output_prefix}_ .tbl")
     lines.append("")
     
     if heterogeneity:

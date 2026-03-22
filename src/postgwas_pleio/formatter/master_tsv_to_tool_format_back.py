@@ -2,132 +2,57 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Union
 import polars as pl
-from postgwas_pleio.utils.logging_utils import (
-    setup_logger,
-    log_action,
-    log_detected,
-    log_warning,
-    log_error,
-)
+from postgwas_pleio.utils.logging_utils import setup_logger, log_action, log_detected, log_warning, log_error
+import math
 import pandas as pd
 
 PathLike = Union[str, Path]
 
 
-def calculate_sample_prevalence(
-    df: pl.DataFrame,
-    ss_col: str = "SS",
-    nc_col: str = "NC",
-    sample_id: str = "Unknown_GWAS",
-    trait_type: str = "binary"
-) -> float:
+import polars as pl
+
+
+def calculate_sample_prevalence(df: pl.DataFrame, ss_col: str = "SS", nc_col: str = "NC") -> float:
     """
     Estimate sample prevalence from GWAS summary statistics.
-    Includes robust column auditing and safe numeric handling.
+
+    SPREV = median(Ncases) / median(total sample size)
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        GWAS summary statistics dataframe
+    ss_col : str
+        Column name for total sample size
+    nc_col : str
+        Column name for number of cases
+
+    Returns
+    -------
+    float
+        Estimated sample prevalence
     """
 
-    t_type = str(trait_type).lower()
+    if ss_col not in df.columns:
+        raise ValueError(f"{ss_col} not found in dataframe")
 
-    def get_column_status(col_name):
-        if col_name not in df.columns:
-            return "Not Found"
+    if nc_col not in df.columns:
+        raise ValueError(f"{nc_col} not found in dataframe")
 
-        try:
-            col_expr = pl.col(col_name).cast(pl.Float64, strict=False)
+    stats = df.select([
+        pl.col(nc_col).median().alias("median_cases"),
+        pl.col(ss_col).median().alias("median_total")
+    ])
 
-            valid_count = (
-                df.select(col_expr.alias(col_name))
-                  .drop_nulls()
-                  .filter(pl.col(col_name) > 0)
-                  .height
-            )
+    median_cases = stats["median_cases"][0]
+    median_total = stats["median_total"][0]
 
-            if valid_count == 0:
-                return "Exists (But the column is empty/all zeros)"
-            return "Exists (Has valid data)"
+    if median_total == 0:
+        raise ValueError("Median total sample size is zero")
 
-        except Exception:
-            return "Exists (Format Error - Cannot parse as numeric)"
+    return float(median_cases / median_total)
 
-    ss_status = get_column_status(ss_col)
-    nc_status = get_column_status(nc_col)
-
-    # ---------------------------------------------------
-    # 1. Quantitative Traits
-    # ---------------------------------------------------
-    if t_type == "quantitative":
-        print(f"[{sample_id}] Trait Type: {t_type} | Sample Prevalence: nan")
-        print(f"    - Total N ('{ss_col}'): {ss_status}")
-        print(f"    - Case N ('{nc_col}'): {nc_status}")
-        print("    - Note: Quantitative traits do not have prevalence.")
-        return float("nan")
-
-    # ---------------------------------------------------
-    # 2. Binary Traits
-    # ---------------------------------------------------
-    elif t_type == "binary":
-
-        if "Has valid data" not in ss_status or "Has valid data" not in nc_status:
-            print(f"[{sample_id}] Trait Type: {t_type} | Sample Prevalence: nan")
-            print("    - Reason: Invalid column status")
-            print(f"      * Total N ('{ss_col}'): {ss_status}")
-            print(f"      * Case N ('{nc_col}'): {nc_status}")
-            return float("nan")
-
-        # Pre-cast once
-        df_clean = df.select([
-            pl.col(ss_col).cast(pl.Float64, strict=False).alias("N_total"),
-            pl.col(nc_col).cast(pl.Float64, strict=False).alias("N_cases")
-        ])
-
-        valid_data = (
-            df_clean
-            .drop_nulls()
-            .filter(
-                (pl.col("N_total") > 0) &
-                (pl.col("N_cases") > 0)
-            )
-        )
-
-        if valid_data.height == 0:
-            print(f"[{sample_id}] Sample Prevalence: nan (No valid rows)")
-            return float("nan")
-
-        # Detect mapping issue early
-        invalid_cases = valid_data.filter(pl.col("N_cases") > pl.col("N_total")).height
-        if invalid_cases > 0:
-            print(f"[{sample_id}] WARNING: {invalid_cases} rows where cases > total (column mapping issue)")
-
-        stats = valid_data.select([
-            pl.col("N_cases").median().alias("median_cases"),
-            pl.col("N_total").median().alias("median_total")
-        ])
-
-        median_cases = stats["median_cases"][0]
-        median_total = stats["median_total"][0]
-
-        if median_total == 0 or median_cases is None:
-            print(f"[{sample_id}] Sample Prevalence: nan (Median failure)")
-            return float("nan")
-
-        prevalence = float(median_cases / median_total)
-
-        if prevalence <= 0 or prevalence > 1:
-            print(f"[{sample_id}] Sample Prevalence: nan (Invalid value {prevalence:.4f})")
-            return float("nan")
-
-        print(
-            f"[{sample_id}] Sample Prevalence: {prevalence:.4f} "
-            f"(cases_med={median_cases}, total_med={median_total}, n_snps={valid_data.height})"
-        )
-
-        return prevalence
-
-    else:
-        print(f"[{sample_id}] Sample Prevalence: nan (Unknown trait type '{trait_type}')")
-        return float("nan")
-
-
+    
 def _convert_lp_to_raw_pvalue(df: pl.DataFrame, logger) -> pl.DataFrame:
     """
     Convert columns ending with ':LP' to raw p-values.
@@ -142,21 +67,13 @@ def _convert_lp_to_raw_pvalue(df: pl.DataFrame, logger) -> pl.DataFrame:
     lp_cols = [c for c in df.columns if c.endswith(":LP")]
     if not lp_cols:
         return df
-
-    log_action(
-        logger,
-        f"Converting {len(lp_cols)} LP columns ({', '.join(lp_cols)}) to raw p-values; Total variants: {df.height:,}"
-    )
-    print(
-        f"[INFO] Converting {len(lp_cols)} LP columns ({', '.join(lp_cols)}) to raw p-values; Total variants: {df.height:,}",
-        flush=True
-    )
-
+    log_action(logger, f"Converting {len(lp_cols)} LP columns ({', '.join(lp_cols)}) to raw p-values; Total variants: {df.height:,}")
+    print(f"[INFO] Converting {len(lp_cols)} LP columns ({', '.join(lp_cols)}) to raw p-values; Total variants: {df.height:,}", flush=True)
     # -----------------------------
     # Detect very large LP
     # -----------------------------
     large_lp = df.select([
-        (pl.col(c).cast(pl.Float64, strict=False) > MAX_LP).sum().alias(c)
+        (pl.col(c) > MAX_LP).sum().alias(c)
         for c in lp_cols
     ])
     total_large_lp = sum(large_lp.row(0))
@@ -164,12 +81,11 @@ def _convert_lp_to_raw_pvalue(df: pl.DataFrame, logger) -> pl.DataFrame:
         msg = f"{total_large_lp:,} LP values exceed {MAX_LP} and will be capped"
         log_warning(logger, msg)
         print(f"[WARNING] {msg}", flush=True)
-
     # -----------------------------
     # Detect negative LP
     # -----------------------------
     negative_lp = df.select([
-        (pl.col(c).cast(pl.Float64, strict=False) < 0).sum().alias(c)
+        (pl.col(c) < 0).sum().alias(c)
         for c in lp_cols
     ])
     total_negative_lp = sum(negative_lp.row(0))
@@ -177,43 +93,37 @@ def _convert_lp_to_raw_pvalue(df: pl.DataFrame, logger) -> pl.DataFrame:
         msg = f"{total_negative_lp:,} negative LP values detected (will produce p > 1)"
         log_warning(logger, msg)
         print(f"[WARNING] {msg}", flush=True)
-
     # -----------------------------
     # Apply cap + convert
     # -----------------------------
     df = df.with_columns([
-        pl.when(pl.col(c).cast(pl.Float64, strict=False).is_finite())
-          .then(10.0 ** (-pl.col(c).cast(pl.Float64, strict=False).clip_max(MAX_LP)))
+        pl.when(pl.col(c).is_finite())
+          .then(10.0 ** (-pl.col(c).clip_max(MAX_LP)))
           .otherwise(None)
           .alias(c)
         for c in lp_cols
     ])
-
     # -----------------------------
     # Post-check p-values
     # -----------------------------
     over_one = df.select([
-        (pl.col(c).cast(pl.Float64, strict=False) > 1.0).sum().alias(c)
+        (pl.col(c) > 1.0).sum().alias(c)
         for c in lp_cols
     ])
     total_over_one = sum(over_one.row(0))
-
     below_zero = df.select([
-        (pl.col(c).cast(pl.Float64, strict=False) < 0).sum().alias(c)
+        (pl.col(c) < 0).sum().alias(c)
         for c in lp_cols
     ])
     total_below_zero = sum(below_zero.row(0))
-
     if total_over_one > 0:
         msg = f"{total_over_one:,} raw p-values > 1 detected after conversion"
         log_warning(logger, msg)
         print(f"[WARNING] {msg}", flush=True)
-
     if total_below_zero > 0:
         msg = f"{total_below_zero:,} raw p-values < 0 detected after conversion"
         log_warning(logger, msg)
         print(f"[WARNING] {msg}", flush=True)
-
     if (
         total_large_lp == 0 and
         total_negative_lp == 0 and
@@ -222,60 +132,44 @@ def _convert_lp_to_raw_pvalue(df: pl.DataFrame, logger) -> pl.DataFrame:
     ):
         log_action(logger, "All LP values converted successfully within numeric range")
         print("[INFO] All LP values converted successfully within numeric range", flush=True)
-
     return df
 
 
 def _print_main(msg: str) -> None:
     print(msg, flush=True)
 
-
 def _clean_header_columns(cols: Sequence[str]) -> List[str]:
     return [c.split("]")[-1] for c in cols]
 
-
 def _drop_fully_null_columns(df: pl.DataFrame) -> pl.DataFrame:
-    if df.height == 0:
-        return df
     kept = [name for name in df.columns if df[name].null_count() < df.height]
     return df.select([pl.col(name) for name in kept])
-
 
 def _ensure_id_column(df: pl.DataFrame, logger) -> pl.DataFrame:
     if "ID" not in df.columns:
         raise ValueError("ID column must exist in input TSV")
-
     required = ["CHROM", "POS", "REF", "ALT"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         msg = f"Cannot fill missing ID values. Missing columns: {missing}"
         log_error(logger, msg)
         raise ValueError(msg)
-
-    missing_id_expr = (
-        pl.col("ID").is_null() |
-        (pl.col("ID").cast(pl.Utf8, strict=False).str.strip_chars() == "")
-    )
-
-    null_count = df.select(missing_id_expr.sum()).item()
+    null_count = df.select(pl.col("ID").is_null().sum()).item()
     if null_count > 0:
         log_action(logger, f"Filling {null_count} missing IDs using CHROM_POS_REF_ALT")
         df = df.with_columns(
-            pl.when(missing_id_expr)
+            pl.when(pl.col("ID").is_null())
             .then(
-                pl.format(
-                    "{}_{}_{}_{}",
-                    pl.col("CHROM"),
-                    pl.col("POS"),
-                    pl.col("REF"),
-                    pl.col("ALT")
-                )
+                pl.format("{}_{}_{}_{}",
+                          pl.col("CHROM"),
+                          pl.col("POS"),
+                          pl.col("REF"),
+                          pl.col("ALT"))
             )
             .otherwise(pl.col("ID"))
             .alias("ID")
         )
     return df
-
 
 def _enforce_unique_id(df: pl.DataFrame, logger) -> pl.DataFrame:
     required = ["CHROM", "POS", "REF", "ALT"]
@@ -286,42 +180,30 @@ def _enforce_unique_id(df: pl.DataFrame, logger) -> pl.DataFrame:
     if "ID" in df.columns:
         df = df.drop("ID")
     df = df.with_columns(
-        pl.format(
-            "{}_{}_{}_{}",
-            pl.col("CHROM"),
-            pl.col("POS"),
-            pl.col("REF"),
-            pl.col("ALT")
+        pl.format("{}_{}_{}_{}",
+                  pl.col("CHROM"),
+                  pl.col("POS"),
+                  pl.col("REF"),
+                  pl.col("ALT")
         ).alias("ID")
     )
     return df
 
-
 def _remove_duplicate_ids(df: pl.DataFrame, logger) -> pl.DataFrame:
-    if df.height == 0:
+    if df.height==0:
         return df
-    log_action(logger, "Removing duplicate IDs")
-    before = df.height
-    df = df.unique(subset=["ID"], keep="first")
-    removed = before - df.height
-    log_action(logger, f"Removed {removed} duplicate rows")
-    return df
+    log_action(logger,"Removing duplicate IDs")
+    return df.unique(subset=["ID"],keep="first")
 
-
-def _apply_header_map(
-    df: pl.DataFrame,
-    header_map: Optional[Dict[str, str]],
-    logger
-) -> pl.DataFrame:
+def _apply_header_map(df: pl.DataFrame, header_map: Optional[Dict[str,str]], logger) -> pl.DataFrame:
     if not header_map:
         return df
-    existing = {k: v for k, v in header_map.items() if k in df.columns}
+    existing = {k:v for k,v in header_map.items() if k in df.columns}
     if not existing:
-        log_warning(logger, "header_map provided but no columns matched")
+        log_warning(logger,"header_map provided but no columns matched")
         return df
     df = df.rename(existing)
     return df
-
 
 def _transform_retained_columns(
     retained_cols,
@@ -342,44 +224,32 @@ def _transform_retained_columns(
         transformed.append(col)
     return transformed
 
-
-def _replace_suffixes(
-    df: pl.DataFrame,
-    suffix_replace: Optional[Dict[str, str]],
-    logger
-) -> pl.DataFrame:
+def _replace_suffixes(df: pl.DataFrame, 
+        suffix_replace: Optional[Dict[str,str]], logger) -> pl.DataFrame:
     if not suffix_replace:
         return df
-    new_cols = []
-    changed = 0
+    new_cols=[]
+    changed=0
     for c in df.columns:
-        new_c = c
-        for old, new in suffix_replace.items():
+        new_c=c
+        for old,new in suffix_replace.items():
             if new_c.endswith(old):
-                new_c = new_c[:-len(old)] + new
-                changed += 1
+                new_c=new_c[:-len(old)]+new
+                changed+=1
                 break  # prevent multiple suffix changes
         new_cols.append(new_c)
     if changed:
-        log_action(logger, f"Suffix replacement updated {changed} columns")
-    df.columns = new_cols
+        log_action(logger,f"Suffix replacement updated {changed} columns")
+    df.columns=new_cols
     return df
-
 
 def _prepare_base_dataframe(tsv_file: Path, logger) -> pl.DataFrame:
-    log_action(logger, "Reading TSV")
-    df = pl.read_csv(
-        tsv_file,
-        separator="\t",
-        null_values=["", "."],
-        truncate_ragged_lines=True,
-        infer_schema_length=10000
-    )
-    df.columns = _clean_header_columns(df.columns)
-    df = _drop_fully_null_columns(df)
-    df = _ensure_id_column(df, logger)
+    log_action(logger,"Reading TSV")
+    df=pl.read_csv(tsv_file,separator="\t",null_values=["","."],truncate_ragged_lines=True,infer_schema_length=10000)
+    df.columns=_clean_header_columns(df.columns)
+    df=_drop_fully_null_columns(df)
+    df=_ensure_id_column(df,logger)
     return df
-
 
 # def _filter_by_manifest(df: pl.DataFrame,input_manifest_df: pl.DataFrame,logger)->pl.DataFrame:
 #     if "sample_id" not in input_manifest_df.columns:
@@ -388,7 +258,6 @@ def _prepare_base_dataframe(tsv_file: Path, logger) -> pl.DataFrame:
 #     common_cols=[c for c in df.columns if not any(c.startswith(f"{s}:") for s in samples)]
 #     sample_cols=[c for c in df.columns if any(c.startswith(f"{s}:") for s in samples)]
 #     return df.select(common_cols+sample_cols)
-
 
 def _filter_by_manifest(
     df: pl.DataFrame,
@@ -405,7 +274,6 @@ def _filter_by_manifest(
     """
     if "sample_id" not in input_manifest_df.columns:
         raise ValueError("input_manifest_df must contain 'sample_id'")
-
     # Collect unique sample IDs
     samples = (
         input_manifest_df["sample_id"]
@@ -413,30 +281,24 @@ def _filter_by_manifest(
         .unique()
         .to_list()
     )
-
     if not samples:
         log_warning(logger, "Manifest contains no valid sample_id entries")
         return df
-
     # Identify sample-prefixed columns
     allowed_sample_cols = [
         c for c in df.columns
         if any(c.startswith(f"{s}:") for s in samples)
     ]
-
     # Base columns = no colon in name
     base_cols = [c for c in df.columns if ":" not in c]
-
     kept_cols = base_cols + allowed_sample_cols
     removed_cols = len(df.columns) - len(kept_cols)
-
     log_action(
         logger,
         f"Manifest filtering → keeping {len(allowed_sample_cols)} "
         f"sample-prefixed columns; removed {removed_cols} columns"
     )
     return df.select(kept_cols)
-
 
 def run_postprocess_joined_samples_from_df(
     df: pl.DataFrame,
@@ -445,37 +307,31 @@ def run_postprocess_joined_samples_from_df(
     joined_remove_duplicate_ids: bool,
     joined_create_unique_id: bool,
     joined_sample_retained_cols: Optional[Sequence[str]],
-    joined_header_map: Optional[Dict[str, str]],
-    joined_suffix_replace: Optional[Dict[str, str]],
+    joined_header_map: Optional[Dict[str,str]],
+    joined_suffix_replace: Optional[Dict[str,str]],
     joined_convert_to_raw_p_value: bool,
     logger,
 ) -> Path:
     _print_main("Processing JOINED samples")
     log_action(logger, "JOINED MODE → Start")
     df2 = df.clone()
-
     # 1️⃣ Create unique ID only if requested (does NOT overwrite existing non-null IDs)
     if joined_create_unique_id:
         log_action(logger, "JOINED MODE → Enforcing unique IDs")
-        df2 = _enforce_unique_id(df2, logger)
-
+        df2 = _enforce_unique_id(df2,logger)
     # 2️⃣ Convert LP to raw p-value if requested
     if joined_convert_to_raw_p_value:
         df2 = _convert_lp_to_raw_pvalue(df2, logger)
-
     # 3️⃣ Remove duplicate rows if requested
     if joined_remove_duplicate_ids:
         log_action(logger, "JOINED MODE → Removing duplicate IDs")
         df2 = _remove_duplicate_ids(df2, logger)
-
     # 4️⃣ Apply header renaming
     if joined_header_map:
         df2 = _apply_header_map(df2, joined_header_map, logger)
-
     # 5️⃣ Apply suffix replacement
     if joined_suffix_replace:
         df2 = _replace_suffixes(df2, joined_suffix_replace, logger)
-
     # 6️⃣ Apply retention AFTER renaming
     if joined_sample_retained_cols:
         transformed_cols = _transform_retained_columns(
@@ -487,12 +343,10 @@ def run_postprocess_joined_samples_from_df(
         for col in transformed_cols:
             # Normalize (remove leading dot or colon artifacts)
             normalized_col = col.lstrip(".:_")
-
             # 1️⃣ Direct match
             if col in df2.columns:
                 retained_cols.append(col)
                 continue
-
             # 2️⃣ Suffix match (support :, _, and . delimiters)
             matches = [
                 c for c in df2.columns
@@ -503,14 +357,9 @@ def run_postprocess_joined_samples_from_df(
                 )
             ]
             retained_cols.extend(matches)
-
         if not retained_cols:
             log_warning(logger, "No retained columns matched after renaming")
-        else:
-            mandatory = [c for c in ["ID", "CHROM", "POS", "REF", "ALT"] if c in df2.columns]
-            retained_cols = mandatory + [c for c in retained_cols if c not in mandatory]
-            df2 = df2.select(retained_cols)
-
+        df2 = df2.select(retained_cols)
     # 6️⃣ Ensure ID is first column
     id_column = None
     if "ID" in df2.columns:
@@ -519,10 +368,8 @@ def run_postprocess_joined_samples_from_df(
         mapped_id = joined_header_map["ID"]
         if mapped_id in df2.columns:
             id_column = mapped_id
-
     if id_column:
         df2 = df2.select([id_column] + [c for c in df2.columns if c != id_column])
-
     # 7️⃣ Write output
     out_path = Path(joined_out_tsv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -531,7 +378,6 @@ def run_postprocess_joined_samples_from_df(
     log_detected(logger, f"Final shape → rows={df2.height}, cols={df2.width}")
     _print_main(f"Joined output written: {out_path}")
     return out_path
-
 
 def run_postprocess_sample_specific_from_df(
     df: pl.DataFrame,
@@ -544,41 +390,19 @@ def run_postprocess_sample_specific_from_df(
     sample_header_map: Optional[Dict[str, str]],
     sample_suffix_replace: Optional[Dict[str, str]],
     sample_convert_to_raw_p_value: bool,
-    sample_calculate_sample_prevalence: bool = False,
-    sample_total_sample_size_col: Optional[str] = None,
-    sample_number_of_cases_col: Optional[str] = None,
-    logger=None,
-    output_map: str = "matrix_tsv",
-) -> pl.DataFrame:
+    logger,
+    output_map="matrix_tsv",
+) -> Path:
     outdir = Path(sample_specific_directory)
     outdir.mkdir(parents=True, exist_ok=True)
-
     samples = (
         input_manifest_df["sample_id"]
         .drop_nulls()
         .unique()
         .to_list()
     )
-
     log_action(logger, "SAMPLE-SPECIFIC MODE → Start")
     sample_output_map = []
-
-    if sample_calculate_sample_prevalence:
-        if not sample_total_sample_size_col or not sample_number_of_cases_col:
-            raise ValueError(
-                "sample_total_sample_size_col and sample_number_of_cases_col are required "
-                "when sample_calculate_sample_prevalence=True"
-            )
-
-    if "SPREV" not in input_manifest_df.columns:
-        input_manifest_df = input_manifest_df.with_columns(pl.lit(None).alias("SPREV"))
-
-    trait_col = None
-    if "TYPE" in input_manifest_df.columns:
-        trait_col = "TYPE"
-    elif "trait_type" in input_manifest_df.columns:
-        trait_col = "trait_type"
-
     for s in samples:
         cols = ["ID", "CHROM", "POS", "REF", "ALT"] + [
             c for c in df.columns if c.startswith(f"{s}:")
@@ -586,60 +410,57 @@ def run_postprocess_sample_specific_from_df(
         if len(cols) == 5:
             log_warning(logger, f"No metric columns found for sample {s}")
             continue
-
         df_sample = df.select(cols)
-
-        if trait_col is not None:
-            s_trait_type = (
-                input_manifest_df
-                .filter(pl.col("sample_id") == s)
-                .select(trait_col)
-                .item()
-            )
-        else:
-            s_trait_type = "binary"
-
-        if sample_calculate_sample_prevalence:
-            ss_col = f"{s}:{sample_total_sample_size_col}"
-            nc_col = f"{s}:{sample_number_of_cases_col}"
-
-            ss_prev = calculate_sample_prevalence(
-                df=df_sample,
-                ss_col=ss_col,
-                nc_col=nc_col,
-                sample_id=s,
-                trait_type=s_trait_type
-            )
-
-            input_manifest_df = input_manifest_df.with_columns(
-                pl.when(pl.col("sample_id") == s)
-                .then(pl.lit(ss_prev))
-                .otherwise(pl.col("SPREV"))
-                .alias("SPREV")
-            )
-
         # 1️⃣ Unique ID
         if sample_create_unique_id:
             log_action(logger, f"{s} → Enforcing unique IDs")
             df_sample = _enforce_unique_id(df_sample, logger)
-
         # 3️⃣ Convert LP
         if sample_convert_to_raw_p_value:
             df_sample = _convert_lp_to_raw_pvalue(df_sample, logger)
-
         # 2️⃣ Remove duplicates
         if sample_remove_duplicate_ids:
             log_action(logger, f"{s} → Removing duplicate IDs")
             df_sample = _remove_duplicate_ids(df_sample, logger)
-
         # 4️⃣ Header rename
         if sample_header_map:
             df_sample = _apply_header_map(df_sample, sample_header_map, logger)
-
         # 5️⃣ Suffix replacement
         if sample_suffix_replace:
             df_sample = _replace_suffixes(df_sample, sample_suffix_replace, logger)
-
+        # 6️⃣ Retention
+        # if sample_specific_retained_cols:
+        #     transformed_cols = _transform_retained_columns(
+        #         sample_specific_retained_cols,
+        #         sample_header_map,
+        #         sample_suffix_replace,
+        #     )
+        #     retained_cols = []
+        #     seen = set()
+        #     for col in transformed_cols:
+        #         normalized_col = col.lstrip(".")
+        #         # 1️⃣ Direct match
+        #         if col in df_sample.columns and col not in seen:
+        #             retained_cols.append(col)
+        #             seen.add(col)
+        #             continue
+        #         # 2️⃣ Suffix match (support :, _, and . delimiters)
+        #         matches = [
+        #             c for c in df_sample.columns
+        #             if (
+        #                 c.endswith(f":{normalized_col}") or
+        #                 c.endswith(f"_{normalized_col}") or
+        #                 c.endswith(f".{normalized_col}")
+        #             )
+        #         ]
+        #         for m in matches:
+        #             if m not in seen:
+        #                 retained_cols.append(m)
+        #                 seen.add(m)
+        #     if not retained_cols:
+        #         log_warning(logger, f"{s} → No retained columns matched after renaming")
+        #     else:
+        #         df_sample = df_sample.select(retained_cols)
         # 6️⃣ Retention (preserve order from sample_specific_retained_cols)
         if sample_specific_retained_cols:
             transformed_cols = _transform_retained_columns(
@@ -650,14 +471,12 @@ def run_postprocess_sample_specific_from_df(
             retained_cols = []
             seen = set()
             for requested_col in transformed_cols:
-                normalized_col = requested_col.lstrip(".:_")
-
+                normalized_col = requested_col.lstrip(".")
                 # 1️⃣ Direct match
                 if requested_col in df_sample.columns and requested_col not in seen:
                     retained_cols.append(requested_col)
                     seen.add(requested_col)
                     continue
-
                 # 2️⃣ Suffix matches
                 matches = [
                     c for c in df_sample.columns
@@ -667,24 +486,18 @@ def run_postprocess_sample_specific_from_df(
                         c.endswith(f".{normalized_col}")
                     )
                 ]
-
                 # IMPORTANT: preserve df column order but attach them
                 # under the requested column position
                 for m in matches:
                     if m not in seen:
                         retained_cols.append(m)
                         seen.add(m)
-
             if not retained_cols:
                 log_warning(logger, f"{s} → No retained columns matched after renaming")
             else:
-                mandatory = [c for c in ["ID", "CHROM", "POS", "REF", "ALT"] if c in df_sample.columns]
-                retained_cols = mandatory + [c for c in retained_cols if c not in mandatory]
-
                 # enforce exact order
                 retained_cols = [c for c in retained_cols if c in df_sample.columns]
                 df_sample = df_sample.select(retained_cols)
-
         # 7️⃣ Strip sample prefix ONLY at the very end
         rename_map = {
             c: c.replace(f"{s}:", "")
@@ -693,16 +506,14 @@ def run_postprocess_sample_specific_from_df(
         }
         if rename_map:
             df_sample = df_sample.rename(rename_map)
-
         # 8️⃣ Write file
         df_sample = df_sample.filter(pl.sum_horizontal(pl.all().is_null()) <= 2)
         out_file = outdir / f"{s}_matrix.tsv"
         df_sample.write_csv(out_file, separator="\t")
         sample_output_map.append(
-            {"sample_id": s, output_map: str(out_file)}
+            {"sample_id": s, output_map : str(out_file)}
         )
         log_detected(logger, f"{s} → Wrote {out_file}")
-
     output_df = pl.DataFrame(sample_output_map)
     input_manifest_df = input_manifest_df.join(
         output_df,
@@ -711,85 +522,68 @@ def run_postprocess_sample_specific_from_df(
     )
     return input_manifest_df
 
-
-def run_mastertsv_to_toolformat_pipeline(
-    *,
-    mode: Sequence[str],
-    tsv_file: PathLike,
-    input_manifest_df: pl.DataFrame,
-    joined_out_tsv: Optional[PathLike] = None,
-    sample_specific_directory: Optional[PathLike] = None,
-    sample_specific_ldsc_directory: Optional[PathLike] = None,
-    joined_remove_duplicate_ids: bool = False,
-    joined_create_unique_id: bool = False,
-    joined_sample_retained_cols: Optional[Sequence[str]] = None,
-    joined_header_map: Optional[Dict[str, str]] = None,
-    joined_suffix_replace: Optional[Dict[str, str]] = None,
-    joined_convert_to_raw_p_value: bool = False,
-    sample_remove_duplicate_ids: bool = False,
-    sample_create_unique_id: bool = False,
-    sample_specific_retained_cols: Optional[Sequence[str]] = None,
-    sample_header_map: Optional[Dict[str, str]] = None,
-    sample_suffix_replace: Optional[Dict[str, str]] = None,
-    sample_convert_to_raw_p_value: bool = False,
-    sample_calculate_sample_prevalence: bool = False,
-    sample_total_sample_size_col: Optional[str] = None,
-    sample_number_of_cases_col: Optional[str] = None,
-    sample_ldsc_remove_duplicate_ids: bool = False,
-    sample_ldsc_create_unique_id: bool = False,
-    sample_ldsc_specific_retained_cols: Optional[Sequence[str]] = None,
-    sample_ldsc_header_map: Optional[Dict[str, str]] = None,
-    sample_ldsc_suffix_replace: Optional[Dict[str, str]] = None,
-    sample_ldsc_convert_to_raw_p_value: bool = False,
-    sample_ldsc_calculate_sample_prevalence: bool = False,
-    sample_ldsc_total_sample_size_col: Optional[str] = None,
-    sample_ldsc_number_of_cases_col: Optional[str] = None,
-    log_file: Optional[PathLike] = None
-) -> Dict[str, PathLike]:
-
+def run_mastertsv_to_toolformat_pipeline(*,mode: Sequence[str],
+        tsv_file: PathLike,
+        input_manifest_df: pl.DataFrame,
+        joined_out_tsv: Optional[PathLike]=None,
+        sample_specific_directory: Optional[PathLike]=None,
+        sample_specific_ldsc_directory: Optional[PathLike]=None,
+        joined_remove_duplicate_ids: bool=False,
+        joined_create_unique_id: bool=False,
+        joined_sample_retained_cols: Optional[Sequence[str]]=None,
+        joined_header_map: Optional[Dict[str,str]]=None,
+        joined_suffix_replace: Optional[Dict[str,str]]=None,
+        joined_convert_to_raw_p_value: bool = False,
+        sample_remove_duplicate_ids: bool=False,
+        sample_create_unique_id: bool=False,
+        sample_specific_retained_cols: Optional[Sequence[str]]=None,
+        sample_header_map: Optional[Dict[str,str]]=None,
+        sample_suffix_replace: Optional[Dict[str,str]]=None,
+        sample_convert_to_raw_p_value: bool = False,
+        sample_ldsc_remove_duplicate_ids: bool=False,
+        sample_ldsc_create_unique_id: bool=False,
+        sample_ldsc_specific_retained_cols: Optional[Sequence[str]]=None,
+        sample_ldsc_header_map: Optional[Dict[str,str]]=None,
+        sample_ldsc_suffix_replace: Optional[Dict[str,str]]=None,
+        sample__ldscconvert_to_raw_p_value: bool = False,
+        log_file: Optional[PathLike]=None)->Dict[str,Path]:
+    
     if isinstance(input_manifest_df, pd.DataFrame):
         input_manifest_df = pl.from_pandas(input_manifest_df)
     elif not isinstance(input_manifest_df, pl.DataFrame):
         raise TypeError("input_manifest_df must be pandas or polars DataFrame")
-
-    mode_set = {m.strip().lower() for m in mode}
-    valid = {"joined_samples", "sample_specific", "sample_specific_ldsc"}
-
+    mode_set={m.strip().lower() for m in mode}
+    valid={"joined_samples","sample_specific","sample_specific_ldsc"}
+    
     if not mode_set or not mode_set.issubset(valid):
         raise ValueError(f"mode must be subset of {valid}")
-
-    tsv_path = Path(tsv_file)
-
+    tsv_path=Path(tsv_file)
     if log_file is None:
-        log_file = tsv_path.with_suffix(".postprocess.log")
-
-    logger = setup_logger(Path(log_file))
-    log_action(logger, "POSTPROCESS PIPELINE STARTED")
-
-    df = _prepare_base_dataframe(tsv_path, logger)
-    df = _filter_by_manifest(df, input_manifest_df, logger)
-
-    results = {}
-
+        log_file=tsv_path.with_suffix(".postprocess.log")
+    logger=setup_logger(Path(log_file))
+    log_action(logger,"POSTPROCESS PIPELINE STARTED")
+    df=_prepare_base_dataframe(tsv_path,logger)
+    df=_filter_by_manifest(df,input_manifest_df,logger)
+    results={}
+    
     if "joined_samples" in mode_set:
         if joined_out_tsv is None:
             raise ValueError("joined_out_tsv required")
-        results["joined"] = run_postprocess_joined_samples_from_df(
+        results["joined"]=run_postprocess_joined_samples_from_df(
             df,
             joined_out_tsv=joined_out_tsv,
             joined_remove_duplicate_ids=joined_remove_duplicate_ids,
             joined_create_unique_id=joined_create_unique_id,
             joined_sample_retained_cols=joined_sample_retained_cols,
-            joined_header_map=joined_header_map,
+            joined_header_map=joined_header_map,    
             joined_suffix_replace=joined_suffix_replace,
             joined_convert_to_raw_p_value=joined_convert_to_raw_p_value,
             logger=logger,
         )
-
     if "sample_specific" in mode_set:
         if sample_specific_directory is None:
             raise ValueError("sample_specific_directory required")
-        results["sample_specific"] = run_postprocess_sample_specific_from_df(
+        results["sample_specific"]=run_postprocess_sample_specific_from_df(
             df,
             sample_specific_directory=sample_specific_directory,
             input_manifest_df=input_manifest_df,
@@ -800,16 +594,12 @@ def run_mastertsv_to_toolformat_pipeline(
             sample_suffix_replace=sample_suffix_replace,
             sample_convert_to_raw_p_value=sample_convert_to_raw_p_value,
             logger=logger,
-            sample_calculate_sample_prevalence=sample_calculate_sample_prevalence,
-            sample_total_sample_size_col=sample_total_sample_size_col,
-            sample_number_of_cases_col=sample_number_of_cases_col,
             output_map="matrix_tsv",
         )
-
     if "sample_specific_ldsc" in mode_set:
         if sample_specific_ldsc_directory is None:
-            raise ValueError("sample_specific_ldsc_directory required")
-        results["sample_specific_ldsc"] = run_postprocess_sample_specific_from_df(
+            raise ValueError("sample_specific_directory required")
+        results["sample_specific_ldsc"]=run_postprocess_sample_specific_from_df(
             df,
             sample_specific_directory=sample_specific_ldsc_directory,
             input_manifest_df=input_manifest_df,
@@ -818,13 +608,9 @@ def run_mastertsv_to_toolformat_pipeline(
             sample_specific_retained_cols=sample_ldsc_specific_retained_cols,
             sample_header_map=sample_ldsc_header_map,
             sample_suffix_replace=sample_ldsc_suffix_replace,
-            sample_convert_to_raw_p_value=sample_ldsc_convert_to_raw_p_value,
+            sample_convert_to_raw_p_value=sample__ldscconvert_to_raw_p_value,
             logger=logger,
-            sample_calculate_sample_prevalence=sample_ldsc_calculate_sample_prevalence,
-            sample_total_sample_size_col=sample_ldsc_total_sample_size_col,
-            sample_number_of_cases_col=sample_ldsc_number_of_cases_col,
             output_map="ldsc_matrix_tsv"
         )
-
-    log_action(logger, "POSTPROCESS PIPELINE COMPLETED")
+    log_action(logger,"POSTPROCESS PIPELINE COMPLETED")
     return results

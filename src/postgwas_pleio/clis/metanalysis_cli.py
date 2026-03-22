@@ -6,7 +6,10 @@ import textwrap
 from rich_argparse import RichHelpFormatter
 import argparse
 import multiprocessing as mp
+import psutil 
 
+AUTO_THREADS = mp.cpu_count()
+AUTO_MAX_MEM = f"{int(psutil.virtual_memory().total / 1024**3)}G"
 
 
 def parse_genomicpca_pipeline_args(subparser):
@@ -385,8 +388,8 @@ def parse_metal_pipeline_args(subparser):
             "sumstat_vcf : Path to the GWAS summary statistics VCF file.\n"
             "TYPE        : Trait type (binary | quantitative).\n"
             "SPREV       : Sample prevalence (cases / total samples). "
-                          "Since this pipeline uses effective sample size for binary traits, "
-                          "SPREV is typically set to 0.5. For quantitative traits, this field can be empty.\n"
+                          "SPREV can set empty, in that case it will try to take mean of prevalence using cases and controls. "
+                          "For quantitative traits, this field can be empty.\n"
             "PPREV       : Population prevalence (binary traits only). "
                           "For quantitative traits, this field can be empty. "
                           "If liability-scale conversion is not required, this field may also be left empty.\n"
@@ -400,14 +403,6 @@ def parse_metal_pipeline_args(subparser):
         required=True,
         metavar="NAME",
         help="Prefix for naming intermediate files, output files, and logs."
-    )
-
-    in_opts.add_argument(
-        "--cores",
-        type=int,
-        default=max(1, mp.cpu_count() // 2),
-        metavar="INT",
-        help="Number of parallel cores to use. [default: %(default)s]"
     )
 
     # =====================================
@@ -445,7 +440,7 @@ def parse_metal_pipeline_args(subparser):
             "[default: %(default)s]"
         )
     )
-
+     
     scheme_opts.add_argument(
         "--heterogeneity",
         action="store_true",
@@ -515,6 +510,95 @@ def parse_metal_pipeline_args(subparser):
             "Track allele frequency across studies "
             "(AVERAGEFREQ + MINMAXFREQ in METAL).\n"
             "[default: %(default)s]"
+        )
+    )
+
+
+    harmonisation_group = pipe.add_argument_group(
+        title="Harmonisation Options"
+    )
+
+    harmonisation_group.add_argument(
+        "--harmonise",
+        action="store_true",
+        default=False,
+        help=(
+            "Perform harmonisation of the METAL output and generate VCF files. "
+            "If enabled, you must provide the PostGWAS resource folder and a "
+            "defaults configuration file using '--defaults_config'. "
+            "[default: %(default)s]"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--defaults_config",
+        metavar="FILE",
+        help=(
+            "Full path to the harmonisation defaults YAML configuration file. "
+            "The file should contain paths to reference resources and population "
+            "settings used by the PostGWAS harmonisation step. "
+            "Example configuration:\n"
+            "https://github.com/JIBINJOHNV/postgwas/blob/main/tests/harmonisation.yaml"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--resource-folder",
+        metavar="FILE",
+        help=("Postgwas harmonisation resource/reference folder, absolute path require")
+    )
+
+    harmonisation_group.add_argument(
+        "--sample_size_approach",
+        choices=["weight", "sample_overlap_corrected", "totalnef"], 
+        default="totalnef",
+        help=(
+            "Which sample size estimate to report in the harmonised METAL output.\n"
+            "weight : METAL internal weight (sum of study weights).\n"
+            "sample_overlap_corrected : effective sample size after overlap correction (METAL 'N').\n"
+            "totalnef : total effective sample size summed across studies (recommended).\n"
+            "If --scheme STDERR is used, only totalnef is used.\n"
+            "[default: %(default)s]"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--info_method",
+        choices=["mean", "median", "min", "max"],
+        default="mean",
+        help=(
+            "Method used to aggregate INFO scores across studies when creating the "
+            "harmonised METAL output.\n"
+            "mean   : average INFO score across studies.\n"
+            "median : median INFO score across studies.\n"
+            "min    : minimum INFO score across studies (most conservative).\n"
+            "max    : maximum INFO score across studies.\n"
+            "[default: %(default)s]"
+        )
+    )
+
+
+    # Create a dedicated group to avoid showing under "Optional Arguments"
+    resource_group = pipe.add_argument_group("SYSTEM RESOURCES")
+
+    # -------- THREADS ----------
+    resource_group.add_argument(
+        "--nthreads",
+        type=int,
+        metavar='',
+        default=AUTO_THREADS,
+        help="Number of parallel threads to use. [default: %(default)s]"
+    )
+
+    # -------- MEMORY ----------
+    resource_group.add_argument(
+        "--max-mem",
+        metavar='',
+        default=AUTO_MAX_MEM,
+        help=(
+            f"Maximum memory allowed. "
+            "Formats accepted: 4G, 800M, 1200M."
+            f"[bold green]Default:[/bold green] [cyan]{AUTO_MAX_MEM}[/cyan]"
         )
     )
 
@@ -782,7 +866,7 @@ def parse_pleio_pipeline_args(subparser):
         "      --inputfile inputfile.tsv \\\n"
         "      --run_name psych_study \\\n"
         "      --ld_ref_panel ./eur_w_ld_chr/ \\\n"
-        "      --cores 4\n"
+        "      --nthreads 4\n"
         "For detailed explanation of pleio options, visit:\n"
         "  https://github.com/cuelee/pleio/wiki\n"
 
@@ -841,11 +925,22 @@ def parse_pleio_pipeline_args(subparser):
     )
 
     flow_opts.add_argument(
-        "--cores",
+        "--nthreads",
         type=int,
         default=max(1, mp.cpu_count() // 2),
         metavar="INT",
         help="Number of CPU threads used for parallel processing (default: %(default)s)."
+    )
+
+    flow_opts.add_argument(
+        "--max-mem",
+        metavar='',
+        default=AUTO_MAX_MEM,
+        help=(
+            f"Maximum memory allowed. "
+            "Formats accepted: 4G, 800M, 1200M."
+            f"[bold green]Default:[/bold green] [cyan]{AUTO_MAX_MEM}[/cyan]"
+        )
     )
 
     # -----------------------------
@@ -880,6 +975,72 @@ def parse_pleio_pipeline_args(subparser):
             "Useful for evaluating genomic inflation (λGC) or producing QQ plots. "
             "This option modifies the reported p-values and is generally "
             "not recommended for discovery analyses."
+        )
+    )
+
+
+    harmonisation_group = pipe.add_argument_group(title="Harmonisation Options")
+
+    harmonisation_group.add_argument(
+        "--harmonise",
+        action="store_true",
+        default=False,
+        help=(
+            "Perform harmonisation of the METAL output and generate VCF files. "
+            "If enabled, you must provide the PostGWAS resource folder and a "
+            "defaults configuration file using '--defaults_config'. "
+            "[default: %(default)s]"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--defaults_config",
+        metavar="FILE",
+        help=(
+            "Full path to the harmonisation defaults YAML configuration file. "
+            "The file should contain paths to reference resources and population "
+            "settings used by the PostGWAS harmonisation step. "
+            "Example configuration:\n"
+            "https://github.com/JIBINJOHNV/postgwas/blob/main/tests/harmonisation.yaml"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--resource-folder",
+        metavar="FILE",
+        help=("Postgwas harmonisation resource/reference folder, absolute path require")
+    )
+
+    harmonisation_group.add_argument(
+        "--info_method",
+        choices=["mean", "median", "min", "max"],
+        default="mean",
+        help=(
+            "Method used to aggregate INFO scores across studies when creating the "
+            "harmonised METAL output.\n"
+            "mean   : average INFO score across studies.\n"
+            "median : median INFO score across studies.\n"
+            "min    : minimum INFO score across studies (most conservative).\n"
+            "max    : maximum INFO score across studies.\n"
+            "[default: %(default)s]"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--n_method",
+        choices=["mean", "median", "min", "max", "sum"],
+        default="sum",
+        help=(
+            "Aggregation method for effective sample size (NEF) across studies when generating "
+            "harmonised MTAG inputs. This option is used only when all of the following flags are enabled: "
+            "--harmonise, --equal_h2, and --perfect_gencov.\n\n"
+            "Available methods:\n"
+            "  mean   : Average effective sample size across studies.\n"
+            "  median : Median effective sample size across studies.\n"
+            "  min    : Minimum effective sample size (most conservative).\n"
+            "  max    : Maximum effective sample size.\n"
+            "  sum    : Sum of effective sample sizes across studies.\n\n"
+            "[default: %(default)s]"
         )
     )
 
@@ -958,7 +1119,7 @@ def parse_mtag_pipeline_args(subparser):
         "    --inputfile input_manifest.tsv \\\n"
         "    --run_name heart_disease_study \\\n"
         "    --ld_ref_panel ./eur_ld_ref/ \\\n"
-        "    --cores 4\n\n"
+        "    --nthreads 4\n\n"
         "For detailed explanation of MTAG options, visit:\n"
         "  https://github.com/JonJala/mtag/wiki/Tutorial-1:-The-Basics\n"
     )
@@ -985,8 +1146,8 @@ def parse_mtag_pipeline_args(subparser):
             "sumstat_vcf : Path to the GWAS summary statistics VCF file.\n"
             "TYPE        : Trait type (binary | quantitative).\n"
             "SPREV       : Sample prevalence (cases / total samples). "
-                          "Since this pipeline uses effective sample size for binary traits, "
-                          "SPREV is typically set to 0.5. For quantitative traits, this field can be empty.\n"
+                          "SPREV can set empty, in that case it will try to take mean of prevalence using cases and controls. "
+                          "For quantitative traits, this field can be empty.\n"
             "PPREV       : Population prevalence (binary traits only). "
                           "For quantitative traits, this field can be empty. "
                           "If liability-scale conversion is not required, this field may also be left empty.\n"
@@ -1080,14 +1241,6 @@ def parse_mtag_pipeline_args(subparser):
     )
 
     flag_opts.add_argument(
-        "--cores",
-        type=int,
-        default=max(1, mp.cpu_count() // 2),
-        metavar="INT",
-        help="Number of CPU threads to use. [default: %(default)s]",
-    )
-
-    flag_opts.add_argument(
         "--chunksize",
         type=int,
         default=10000,
@@ -1105,7 +1258,99 @@ def parse_mtag_pipeline_args(subparser):
         ),
     )
 
+
+    harmonisation_group = pipe.add_argument_group(title="Harmonisation Options")
+
+    harmonisation_group.add_argument(
+        "--harmonise",
+        action="store_true",
+        default=False,
+        help=(
+            "Perform harmonisation of the METAL output and generate VCF files. "
+            "If enabled, you must provide the PostGWAS resource folder and a "
+            "defaults configuration file using '--defaults_config'. "
+            "[default: %(default)s]"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--defaults_config",
+        metavar="FILE",
+        help=(
+            "Full path to the harmonisation defaults YAML configuration file. "
+            "The file should contain paths to reference resources and population "
+            "settings used by the PostGWAS harmonisation step. "
+            "Example configuration:\n"
+            "https://github.com/JIBINJOHNV/postgwas/blob/main/tests/harmonisation.yaml"
+        )
+    )
+
+    harmonisation_group.add_argument(
+        "--resource-folder",
+        metavar="FILE",
+        help=("Postgwas harmonisation resource/reference folder, absolute path require")
+    )
+
+    harmonisation_group.add_argument(
+        "--info_method",
+        choices=["mean", "median", "min", "max"],
+        default="mean",
+        help=(
+            "Method used to aggregate INFO scores across studies when creating the "
+            "harmonised METAL output.\n"
+            "mean   : average INFO score across studies.\n"
+            "median : median INFO score across studies.\n"
+            "min    : minimum INFO score across studies (most conservative).\n"
+            "max    : maximum INFO score across studies.\n"
+            "[default: %(default)s]"
+        )
+    )
+
+
+    harmonisation_group.add_argument(
+        "--n_method",
+        choices=["mean", "median", "min", "max", "sum"],
+        default="sum",
+        help=(
+            "Aggregation method for effective sample size (NEF) across studies when generating "
+            "harmonised MTAG inputs. This option is used only when all of the following flags are enabled: "
+            "--harmonise, --equal_h2, and --perfect_gencov.\n\n"
+            "Available methods:\n"
+            "  mean   : Average effective sample size across studies.\n"
+            "  median : Median effective sample size across studies.\n"
+            "  min    : Minimum effective sample size (most conservative).\n"
+            "  max    : Maximum effective sample size.\n"
+            "  sum    : Sum of effective sample sizes across studies.\n\n"
+            "[default: %(default)s]"
+        )
+    )
+
+
+    # Create a dedicated group to avoid showing under "Optional Arguments"
+    resource_group = pipe.add_argument_group("SYSTEM RESOURCES")
+
+    # -------- THREADS ----------
+    resource_group.add_argument(
+        "--nthreads",
+        type=int,
+        metavar='',
+        default=AUTO_THREADS,
+        help=f"Threads to use [bold green]Default:[/bold green] [cyan]{AUTO_THREADS}[/cyan]"
+    )
+
+    # -------- MEMORY ----------
+    resource_group.add_argument(
+        "--max-mem",
+        metavar='',
+        default=AUTO_MAX_MEM,
+        help=(
+            f"Maximum memory allowed. "
+            "Formats accepted: 4G, 800M, 1200M."
+            f"[bold green]Default:[/bold green] [cyan]{AUTO_MAX_MEM}[/cyan]"
+        )
+    )
     return pipe
+
 
 def parse_mtag_direct_args(subparser):
     """

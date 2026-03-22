@@ -65,11 +65,11 @@ def parse_metal_pipeline_args(subparser):
     )
 
     in_opts.add_argument(
-        "--cores",
+        "--nthreads",
         type=int,
         default=max(1, mp.cpu_count() // 2),
         metavar="INT",
-        help="Number of parallel cores to use. [default: %(default)s]"
+        help="Number of parallel threads to use. [default: %(default)s]"
     )
 
     # =====================================
@@ -315,11 +315,11 @@ def parse_mtag_pipeline_args(subparser):
     )
 
     flag_opts.add_argument(
-        "--cores",
+        "--nthreads",
         type=int,
         default=max(1, mp.cpu_count() // 2),
         metavar="INT",
-        help="Number of CPU threads to use. [default: %(default)s]",
+        help="Number of parallel threads to use. [default: %(default)s]",
     )
 
     flag_opts.add_argument(
