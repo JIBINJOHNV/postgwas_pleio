@@ -83,7 +83,14 @@ def generate_metal_script(
         lines.append("FREQLABEL AF")
         lines.append("AVERAGEFREQ ON")
         lines.append("MINMAXFREQ ON")
+    # if track_freq:
+    #     lines.append("FREQLABEL AF")
 
+    #     if scheme == "SAMPLESIZE" and overlap_correction:
+    #         lines.append("MINMAXFREQ ON")
+    #     else:
+    #         lines.append("AVERAGEFREQ ON")
+    #         lines.append("MINMAXFREQ ON")
     # -------------------------
     # Custom variable: Total NEF
     # -------------------------

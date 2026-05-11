@@ -5,10 +5,3 @@ cd mtag
 
 docker build -t jibinjv/postgwas-pleio:1.2 . 
  
-
-
-
-
-##. module require ment 
-bcftools 
-polars

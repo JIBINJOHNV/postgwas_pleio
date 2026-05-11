@@ -172,7 +172,7 @@ def create_manifest_with_info(
     # INFO MERGE
     # ---------------------------------------------------
     if info_files: 
-        print("INFO MERGE")
+        print(f"🔄 INFO MERGE: Calculating '{final_info_col}' from {info_files} files using method: {info_method.upper()}")
         merged_info, info_files_list = process_external_files(
             files=info_files,
             file_merge_keys=info_merge_keys,
@@ -195,7 +195,8 @@ def create_manifest_with_info(
     # SAMPLE SIZE MERGE
     # ---------------------------------------------------
     if sample_size_files:
-        print("SAMPLE SIZE MERGE")
+        print(f"🔄 SAMPLE MERGE: Calculating '{final_sample_size_col}' from {','.join(sample_size_files)} files using method: {sample_size_method.upper()}")
+
         ss_keys = sample_size_merge_keys or sumstat_merge_keys
 
         merged_n, _ = process_external_files(
@@ -212,9 +213,10 @@ def create_manifest_with_info(
         ncontrol_col = final_sample_size_col
 
     # ---------------------------------------------------
-    # FREQUENCY MERGE
+    # FREQUENCY MERGE 
     # ---------------------------------------------------
     if freq_files:
+        print(f"🔄 ALLELE FREQUENCY : Calculating '{final_sample_size_col}' from {','.join(sample_size_files)} files using method: {freq_method.upper()}")
         f_keys = freq_merge_keys or sumstat_merge_keys
 
         merged_freq, _ = process_external_files(

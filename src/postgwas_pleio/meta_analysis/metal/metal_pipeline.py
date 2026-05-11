@@ -1,3 +1,4 @@
+import argparse
 import os
 import subprocess
 import logging
@@ -154,7 +155,7 @@ def metal_pipeline_runner(args):
             if args.sample_size_approach.lower() == "weight":
                 ncontrol_col = "Weight"
 
-            elif args.sample_size_approach.lower() == "totalnef":
+            elif args.sample_size_approach.lower() == "total_neff":
                 ncontrol_col = "TotalNEF"
 
             elif args.sample_size_approach.lower() == "sampleoverlapcorrected":
@@ -163,12 +164,12 @@ def metal_pipeline_runner(args):
             else:
                 raise ValueError(
                     f"Unsupported sample_size_approach: {args.sample_size_approach}. "
-                    "Expected one of: weight, totalnef, sampleoverlapcorrected"
+                    "Expected one of: weight, total_neff, sampleoverlapcorrected"
                 )
 
             _, manifest_df = create_manifest_with_info(
                 sumstat_file=metal_result_file,
-                gwas_outputname=f"{args.run_name}_METAL_meta",
+                gwas_outputname=f"{args.run_name}",
 
                 chr_col="CHROM",
                 pos_col="POS",
@@ -209,9 +210,17 @@ def metal_pipeline_runner(args):
             )
 
         elif args.scheme.upper() == "STDERR":
+            if args.sample_size_approach.lower() != "total_neff":
+                print(
+                    f"User selected --scheme {args.scheme.upper()} "
+                    f"with --sample_size_approach "
+                    f"{args.sample_size_approach.lower()}.\n"
+                    "For STDERR scheme, only 'total_neff' is supported.\n"
+                    "Automatically switching to 'total_neff'."
+                )
             _, manifest_df = create_manifest_with_info(
                 sumstat_file=metal_result_file,
-                gwas_outputname=f"{args.run_name}_METAL_meta",
+                gwas_outputname=f"{args.run_name}",
 
                 chr_col="CHROM",
                 pos_col="POS",
@@ -278,19 +287,29 @@ def metal_pipeline_runner(args):
     if not os.path.exists("/var/run/docker.sock"):
         print("CRITICAL WARNING: /var/run/docker.sock NOT FOUND.")
 
+    docker_image=args.docker_image
+    host_uid = os.environ.get("HOST_UID")
+    host_gid = os.environ.get("HOST_GID")
+
     cmd = [
-        "docker", "run", "--rm", "--platform", "linux/amd64",
+        "docker", "run", "--rm",
+        "--platform", "linux/amd64",
+    ]
+
+    if host_uid and host_gid:
+        cmd.extend(["--user", f"{host_uid}:{host_gid}"])
+
+    cmd.extend([
         "-v", f"{out_path}:{out_path}",
         "-v", f"{resource_folder}:{resource_folder}",
         "-v", f"{defaults_path.parent}:{defaults_path.parent}",
-        "jibinjv/postgwas:1.3",
+        docker_image,
         "postgwas", "harmonisation",
         "--nthreads", str(args.nthreads),
         "--max-mem", str(args.max_mem),
         "--config", str(manifest_file_path),
-        "--defaults", str(defaults_path)
-    ]
-
+        "--defaults", str(defaults_path),
+    ]) 
     # -------------------------------------------------
     # Print command exactly as it would appear in shell
     # -------------------------------------------------

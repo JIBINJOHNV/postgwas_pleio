@@ -4,7 +4,7 @@
 
 
 
-##  pull postgwas docker iamges 
+##  pull postgwas docker iamges  
 docker run --rm --platform=linux/amd64 \
     -u $(id -u):$(id -g) \
     -it jibinjv/postgwas:1.3 postgwas --help
@@ -52,15 +52,15 @@ docker run --rm  --platform=linux/amd64 \
 
 
 
-## Metal analysis 
-
+## Metal analysis  
 docker run --platform linux/amd64 --rm -it \
     -v /Users/JJOHN41/:/Users/JJOHN41/ jibinjv/postgwas-pleio:1.2 \
     postgwas-pleio meta-analysis metal pipeline --help 
 
 docker run --platform linux/amd64 \
     --rm -it \
-    --user root \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
     -e HOME=/Users/JJOHN41 \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -68,42 +68,73 @@ docker run --platform linux/amd64 \
     jibinjv/postgwas-pleio:1.2 \
     postgwas-pleio meta-analysis metal pipeline \
     --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
-    --run_name metal_sczbip \
+    --run_name metal_sczbip_STDERR \
     --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/metal/ \
-    --scheme SAMPLESIZE \
-    --heterogeneity \
-    --overlap-correction \
-    --track-freq \
-    --harmonise \
-    --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
-    --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
-    --sample_size_approach weight \
-    --info_method mean \
-    --nthreads 12  
-
-  #     --genomic-control \
-
-
-docker run --platform linux/amd64 \
-    --rm -it \
-    --user root \
-    -e HOME=/Users/JJOHN41 \
-    -e DOCKER_HOST=unix:///var/run/docker.sock \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v /Users/JJOHN41/:/Users/JJOHN41/ \
-    jibinjv/postgwas-pleio:1.2 \
-    postgwas-pleio meta-analysis metal pipeline \
-    --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
-    --run_name metal_sczbip_stderror \
-    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/metal_stderr/ \
     --scheme STDERR \
     --heterogeneity \
     --track-freq \
     --harmonise \
     --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
     --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
-    --sample_size_approach totalnef \
-    --info_method mean 
+    --sample_size_approach total_neff \
+    --info_method mean \
+    --nthreads 12 \
+    --genomic-control 
+
+
+docker run --platform linux/amd64 \
+    --rm -it \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
+    -e HOME=/Users/JJOHN41 \
+    -e DOCKER_HOST=unix:///var/run/docker.sock \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /Users/JJOHN41/:/Users/JJOHN41/ \
+    jibinjv/postgwas-pleio:1.2 \
+    postgwas-pleio meta-analysis metal pipeline \
+    --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
+    --run_name metal_sczbip_STDERR_nogenomic_control \
+    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/metal/ \
+    --scheme STDERR \
+    --heterogeneity \
+    --track-freq \
+    --harmonise \
+    --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
+    --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
+    --sample_size_approach total_neff \
+    --info_method mean \
+    --nthreads 12 
+
+ 
+docker run --platform linux/amd64 \
+    --rm -it \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
+    -e HOME=/Users/JJOHN41 \
+    -e DOCKER_HOST=unix:///var/run/docker.sock \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /Users/JJOHN41/:/Users/JJOHN41/ \
+    jibinjv/postgwas-pleio:1.2 \
+    postgwas-pleio meta-analysis metal pipeline \
+    --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
+    --run_name metal_sczbip_SAMPLESIZE \
+    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/metal/ \
+    --scheme SAMPLESIZE \
+    --heterogeneity \
+    --track-freq \
+    --harmonise \
+    --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
+    --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
+    --sample_size_approach total_neff \
+    --overlap-correction \
+    --info_method mean \
+    --nthreads 12 \
+    --genomic-control 
+
+
+
+
+
 
 
 
@@ -111,7 +142,8 @@ docker run --platform linux/amd64 \
 ## mtag analysis
 docker run --platform linux/amd64 \
     --rm -it \
-    --user root \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
     -e HOME=/Users/JJOHN41 \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -121,9 +153,10 @@ docker run --platform linux/amd64 \
     --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
     --run_name mtag_sczbip \
     --nthreads 8 \
-    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/mtag/ \
+    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/mtag/mtag_sczbip/ \
     --ld_ref_panel /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
     --harmonise \
+    --docker_image jibinjv/postgwas:1.4 \
     --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
     --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
     --info_method mean  
@@ -131,7 +164,8 @@ docker run --platform linux/amd64 \
 
 docker run --platform linux/amd64 \
     --rm -it \
-    --user root \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
     -e HOME=/Users/JJOHN41 \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -143,18 +177,24 @@ docker run --platform linux/amd64 \
     --nthreads 8 \
     --perfect_gencov \
     --equal_h2 \
-    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/mtag_sczbip_perfectgencov_equalh/ \
+    --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/mtag/mtag_sczbip_perfectgencov_equalh/ \
     --ld_ref_panel /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
     --harmonise \
+    --docker_image jibinjv/postgwas:1.4 \
     --defaults_config /Users/JJOHN41/Downloads/meta_analysis_testing/postgwas/tests/harmonisation.yaml \
     --resource-folder /Users/JJOHN41/Documents/software_resources/resourses/postgwas/gwas2vcf/ \
-    --info_method mean  
+    --info_method mean
+
+
+
+
 
 ## Pleio test 
 
 docker run --platform linux/amd64 \
     --rm -it \
-    --user root \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
     -e HOME=/Users/JJOHN41 \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -163,7 +203,7 @@ docker run --platform linux/amd64 \
     postgwas-pleio meta-analysis pleio pipeline \
     --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
     --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/pleio/  \
-    --run_name pleio_sczbip \
+    --run_name pleio_noflattening_sczbip \
     --nthreads 8 \
     --ld_ref_panel /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
     --nis 100000 \
@@ -177,7 +217,8 @@ docker run --platform linux/amd64 \
 
 docker run --platform linux/amd64 \
     --rm -it \
-    --user root \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
     -e HOME=/Users/JJOHN41 \
     -e DOCKER_HOST=unix:///var/run/docker.sock \
     -v /var/run/docker.sock:/var/run/docker.sock \
@@ -186,7 +227,7 @@ docker run --platform linux/amd64 \
     postgwas-pleio meta-analysis pleio pipeline \
     --inputfile /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis_input_file.tsv \
     --out /Users/JJOHN41/Downloads/meta_analysis_testing/metaanalysis/pleio_fltap/  \
-    --run_name pleio_sczbip \
+    --run_name pleio_flattening_sczbip \
     --nthreads 8 \
     --ld_ref_panel /Users/JJOHN41/Documents/software_resources/resourses/postgwas/1000GP_Phase3/eur_w_ld_chr/ \
     --nis 100000 \

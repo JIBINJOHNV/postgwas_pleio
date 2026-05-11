@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 import polars as pl
 
+
 from postgwas_pleio.utils.input_manifest_val import validate_manifest
 from postgwas_pleio.formatter.merge_vcf_to_tsv import run_merge_vcf_to_tsv_pipeline
 from postgwas_pleio.formatter.master_tsv_to_tool_format import run_mastertsv_to_toolformat_pipeline
@@ -100,35 +101,51 @@ def _build_empty_manifest_df() -> pl.DataFrame:
 
 def _run_harmonisation(args, out_path: Path, manifest_file_path: str, log_file: Path) -> None:
     """
-    Run postgwas harmonisation docker once using the generated manifest.
+    Run postgwas harmonisation docker using Docker-out-of-Docker.
     """
     print("\n[STEP 6] Running harmonisation (Docker)...", flush=True)
 
+    docker_image = args.docker_image
+    host_uid = os.environ.get("HOST_UID")
+    host_gid = os.environ.get("HOST_GID")
+
     resource_folder = Path(args.resource_folder).resolve()
     defaults_path = Path(args.defaults_config).resolve()
+    out_path = Path(out_path).resolve()
+    manifest_abs_path = Path(manifest_file_path).resolve()
+    log_file = Path(log_file).resolve()
 
     cmd = [
-    "docker", "run", "--rm", "--platform", "linux/amd64",
-    "-e", "PYTHONUNBUFFERED=1",   # 🔥 REQUIRED
-    "-v", f"{out_path}:{out_path}",
-    "-v", f"{resource_folder}:{resource_folder}",
-    "-v", f"{defaults_path.parent}:{defaults_path.parent}",
-    "jibinjv/postgwas:1.3",
-    "postgwas", "harmonisation",
-    "--nthreads", str(args.nthreads),
-    "--max-mem", str(args.max_mem),
-    "--config", manifest_file_path,
-    "--defaults", str(defaults_path),
+        "docker", "run", "--rm",
+        "--platform", "linux/amd64",
+        "-e", "PYTHONUNBUFFERED=1",
     ]
 
-    result = _run_subprocess_with_log(
+    if host_uid and host_gid:
+        cmd.extend(["--user", f"{host_uid}:{host_gid}"])
+
+    cmd.extend([
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", f"{out_path}:{out_path}",
+        "-v", f"{resource_folder}:{resource_folder}",
+        "-v", f"{defaults_path.parent}:{defaults_path.parent}",
+        docker_image,
+        "postgwas", "harmonisation",
+        "--nthreads", str(args.nthreads),
+        "--max-mem", str(args.max_mem),
+        "--config", str(manifest_abs_path),
+        "--defaults", str(defaults_path),
+    ])
+
+    print("\nRunning sub-container command:", flush=True)
+    print(" ".join(map(str, cmd)), flush=True)
+    print(f"Harmonisation log file: {log_file}", flush=True)
+
+    _run_subprocess_with_log(
         cmd=cmd,
         log_file=log_file,
         step_name="POSTGWAS HARMONISATION",
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError("Harmonisation failed")
+    ) 
 
 
 def mtag_pipeline_runner(args):
@@ -374,7 +391,7 @@ def mtag_pipeline_runner(args):
 
             _, manifest_df = create_manifest_with_info(
                 sumstat_file=str(final_full_path),
-                gwas_outputname=f"{args.run_name}_MTAG_meta",
+                gwas_outputname=f"{args.run_name}",
 
                 chr_col="CHR",
                 pos_col="BP",

@@ -1,3 +1,4 @@
+from polars._utils import polars_version
 import sys
 import argparse
 from postgwas_pleio.clis.metanalysis_cli import parse_metal_pipeline_args
@@ -35,10 +36,21 @@ def main():
     # -------------------------------------------------
     # Validation
     # -------------------------------------------------
+    # STDERR scheme validation
     if hasattr(args, "scheme") and args.scheme.upper() == "STDERR":
-        if args.sample_size_approach.lower() != "totalnef":
-            parser.error("--scheme STDERR requires --sample_size_approach totalnef")
+        if args.sample_size_approach.lower() != "total_neff":
+            parser.error(
+                "--scheme STDERR requires "
+                "--sample_size_approach total_neff"
+            )
 
+    # OVERLAP correction validation
+    if hasattr(args, "overlap_correction") and args.overlap_correction:
+        if args.scheme.upper() != "SAMPLESIZE":
+            parser.error(
+                "--overlap-correction is only allowed with "
+                "--scheme SAMPLESIZE"
+            )
     # -------------------------------------------------
     # Route execution
     # -------------------------------------------------

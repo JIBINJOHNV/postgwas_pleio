@@ -480,19 +480,18 @@ def parse_metal_pipeline_args(subparser):
     # =====================================
 
     qc_opts = pipe.add_argument_group(title="Quality & Debug Options")
-
-    qc_opts.add_argument(
-        "--column-counting",
-        default="STRICT",
-        choices=["STRICT", "LENIENT"],
-        metavar="MODE",
-        help=(
-            "COLUMNCOUNTING mode.\n"
-            "  STRICT   → exact column match (recommended).\n"
-            "  LENIENT  → allow variable column counts.\n"
-            "[default: %(default)s]"
-        )
-    )
+    # qc_opts.add_argument(
+    #     "--column-counting",
+    #     default="STRICT",
+    #     choices=["STRICT", "LENIENT"],
+    #     metavar="MODE",
+    #     help=(
+    #         "COLUMNCOUNTING mode.\n"
+    #         "  STRICT   → exact column match (recommended).\n"
+    #         "  LENIENT  → allow variable column counts.\n"
+    #         "[default: %(default)s]"
+    #     )
+    # )
 
     qc_opts.add_argument(
         "--verbose",
@@ -529,6 +528,15 @@ def parse_metal_pipeline_args(subparser):
             "[default: %(default)s]"
         )
     )
+    
+    harmonisation_group.add_argument(
+        "--docker_image",
+        default="jibinjv/postgwas:1.4",
+        help=(
+            "Specify the Docker image to use for running the PostGWAS harmonisation pipeline. "
+            "[default: %(default)s]"
+        )
+    )
 
     harmonisation_group.add_argument(
         "--defaults_config",
@@ -550,17 +558,19 @@ def parse_metal_pipeline_args(subparser):
 
     harmonisation_group.add_argument(
         "--sample_size_approach",
-        choices=["weight", "sample_overlap_corrected", "totalnef"], 
-        default="totalnef",
+        choices=["weight", "sample_overlap_corrected", "total_neff"],
+        default="total_neff",
         help=(
-            "Which sample size estimate to report in the harmonised METAL output.\n"
-            "weight : METAL internal weight (sum of study weights).\n"
-            "sample_overlap_corrected : effective sample size after overlap correction (METAL 'N').\n"
-            "totalnef : total effective sample size summed across studies (recommended).\n"
-            "If --scheme STDERR is used, only totalnef is used.\n"
+            "Sample size metric to report in the harmonised METAL output.\n\n"
+            "weight : METAL internal meta-analysis weight "
+            "(sum of study-specific weights).\n\n"
+            "sample_overlap_corrected : overlap-corrected effective sample size "
+            "reported by METAL ('N').\n\n"
+            "total_neff : total effective sample size summed across studies.\n\n"
+            "Note: If --scheme STDERR is used, only total_neff is applied.\n"
             "[default: %(default)s]"
         )
-    )
+    ) 
 
     harmonisation_group.add_argument(
         "--info_method",
@@ -1261,6 +1271,15 @@ def parse_mtag_pipeline_args(subparser):
 
     harmonisation_group = pipe.add_argument_group(title="Harmonisation Options")
 
+    harmonisation_group.add_argument(
+        "--docker_image",
+        default="jibinjv/postgwas:1.4",
+        help=(
+            "Specify the Docker image to use for running the PostGWAS harmonisation pipeline. "
+            "[default: %(default)s]"
+        )
+    )
+    
     harmonisation_group.add_argument(
         "--harmonise",
         action="store_true",

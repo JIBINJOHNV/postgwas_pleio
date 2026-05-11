@@ -274,7 +274,7 @@ def generate_pleio_harmonisation_inputs(
         # ---------------------------
         # Manifest entry
         # ---------------------------
-        sample_out_dir = harmonised_output_dir / safe_sample_id
+        sample_out_dir = harmonised_output_dir / f"{safe_sample_id}_{sample_id_suffix}"
         sample_out_dir.mkdir(parents=True, exist_ok=True)
 
         manifest_rows.append({
@@ -305,21 +305,10 @@ def generate_pleio_harmonisation_inputs(
             "output_folder": str(sample_out_dir),
         })
 
-        print(
-            f"[INFO] {safe_sample_id} → TYPE={trait_type}, "
-            f"ncase_col={ncase_col}, ncontrol_col={ncontrol_col}",
-            flush=True
-        )
-
-        print(f"[DEBUG] Dtypes: {harmonisation_df.dtypes}", flush=True)
-
     # ------------------------------------------------------------------
     # Final manifest
     # ------------------------------------------------------------------
     manifest_df = pl.DataFrame(manifest_rows)
-
-    print("\n[INFO] Final manifest preview:", flush=True)
-    print(manifest_df, flush=True)
 
     return manifest_df
 
@@ -509,7 +498,9 @@ def pleio_pipeline_runner(args):
         # ✅ FIX: Save manifest and define path
         manifest_file_path = harmonisation_input_dir / f"{args.run_name}_harmonisation_manifest.tsv"
         manifest_df.write_csv(manifest_file_path, separator="\t")
-
+        print("\n[INFO] Final manifest preview:", flush=True)
+        print(manifest_df, flush=True) 
+        
         try:
             _run_harmonisation(
                 args=args,
